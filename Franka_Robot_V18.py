@@ -32,6 +32,7 @@ import json
 import logging
 import math
 import platform
+import random
 import socket
 import threading
 import time
@@ -55,13 +56,15 @@ SETTINGS_FILE = Path("dashboard_settings.json")
 # V11: short taught exit path out of each bench (out_bench*) instead of a fixed straight lift
 PATHS = ["to_holder", "to_weigh", "to_bench25", "to_bench35", "out_bench25", "out_bench35", "to_hdd35", "to_hdd25",
          "to_ssd", "home_hdd35", "home_hdd25", "home_ssd"]            # required
-OPTIONAL_PATHS = ["start_to_weigh", "to_reject", "home_reject"]       # V12: empty trip start → weigh spot; reject
-ALL_PATHS = ["start_to_weigh"] + PATHS + ["to_reject", "home_reject"]  # route order (also for 'Test drive')
+# V18: to_reject25/35 take parts that failed the (simulated) bench test from the bench exit to the reject container
+OPTIONAL_PATHS = ["start_to_weigh", "to_reject", "home_reject", "to_reject25", "to_reject35"]
+ALL_PATHS = ["start_to_weigh"] + PATHS + ["to_reject25", "to_reject35", "to_reject", "home_reject"]  # route order
 CLASS_TO_PATH = {"hdd35": "to_hdd35", "hdd25": "to_hdd25", "ssd": "to_ssd", "reject": "to_reject"}
 BENCH_PATH = {"ssd": "to_bench25", "hdd25": "to_bench25", "hdd35": "to_bench35"}   # SSDs (2.5″) use the 2.5″ bench
 HOME_PATH = {"hdd35": "home_hdd35", "hdd25": "home_hdd25", "ssd": "home_ssd", "reject": "home_reject"}
 HOME_CLASS = {v: k for k, v in HOME_PATH.items()}
 BENCH_OUT = {"to_bench25": "out_bench25", "to_bench35": "out_bench35"}
+BENCH_REJECT = {"to_bench25": "to_reject25", "to_bench35": "to_reject35"}   # V18: defective after the bench test
 SEAT_XY_TOL_MM, SEAT_ANG_TOL_DEG = 5.0, 4.0   # V18: exit path must start straight below the end of the bench path
 # the taught paths in driving order (LIFT = straight lift out of the holder) — used by 'Drive to end of previous path'
 LIFT = "<lift>"
@@ -76,18 +79,23 @@ CHAIN_BEFORE = {
     "home_ssd": ["to_holder", LIFT, "to_weigh", "to_bench25", "out_bench25", "to_ssd"],
     "home_hdd35": ["to_holder", LIFT, "to_weigh", "to_bench35", "out_bench35", "to_hdd35"],
     "to_reject": ["to_holder", LIFT, "to_weigh"], "home_reject": ["to_holder", LIFT, "to_weigh", "to_reject"],
+    "to_reject25": ["to_holder", LIFT, "to_weigh", "to_bench25", "out_bench25"],
+    "to_reject35": ["to_holder", LIFT, "to_weigh", "to_bench35", "out_bench35"],
 }
 ROUTES = {   # presets for 'Test drive' (driven in ALL_PATHS order)
     "ssd": ["to_holder", "to_weigh", "to_bench25", "out_bench25", "to_ssd", "home_ssd"],
     "hdd25": ["to_holder", "to_weigh", "to_bench25", "out_bench25", "to_hdd25", "home_hdd25"],
     "hdd35": ["to_holder", "to_weigh", "to_bench35", "out_bench35", "to_hdd35", "home_hdd35"],
     "reject": ["to_holder", "to_weigh", "to_reject", "home_reject"],
+    "bad25": ["to_holder", "to_weigh", "to_bench25", "out_bench25", "to_reject25", "home_reject"],
+    "bad35": ["to_holder", "to_weigh", "to_bench35", "out_bench35", "to_reject35", "home_reject"],
 }
-PATH_CLASS = {v: k for k, v in CLASS_TO_PATH.items()}
+PATH_CLASS = {**{v: k for k, v in CLASS_TO_PATH.items()}, "to_reject25": "reject", "to_reject35": "reject"}
 PATH_LABEL = {"start_to_weigh": "Start → weigh spot", "to_holder": "Holder", "to_weigh": "Weigh spot", "out_bench25": "Exit 2.5″ bench",
               "out_bench35": "Exit 3.5″ bench", "to_bench25": "Bench 2.5″", "to_bench35": "Bench 3.5″", "to_hdd35": "HDD 3.5″",
               "to_hdd25": "HDD 2.5″", "to_ssd": "SSD", "to_reject": "Reject", "home_hdd35": "HDD 3.5″ → start",
-              "home_hdd25": "HDD 2.5″ → start", "home_ssd": "SSD → start", "home_reject": "Reject → start"}
+              "home_hdd25": "HDD 2.5″ → start", "home_ssd": "SSD → start", "home_reject": "Reject → start",
+              "to_reject25": "2.5″ exit → reject", "to_reject35": "3.5″ exit → reject"}
 PATH_HINT = {
     "start_to_weigh": "optional · start point → … → weigh spot: the empty trip for the tare, driven backwards "
                       "afterwards (→ start → to_holder). Without it the arm uses to_weigh both ways",
@@ -112,7 +120,11 @@ PATH_HINT = {
                   "(≥ 2 points; the start point is added automatically at the end)",
     "home_ssd": "drop pose over the SSD container → … around obstacles … → start point "
                 "(≥ 2 points; the start point is added automatically at the end)",
-    "home_reject": "needed when to_reject is taught · reject container → … → start point",
+    "home_reject": "needed for to_reject and for the bench test · reject container → … → start point",
+    "to_reject25": "needed when the bench test can fail · end of the 2.5″ bench exit → … → drop pose over the reject "
+                   "container (same pose as the end of to_reject)",
+    "to_reject35": "needed when the bench test can fail · end of the 3.5″ bench exit → … → drop pose over the reject "
+                   "container (same pose as the end of to_reject)",
 }
 SORTED = ("ok", "ok_no_bench_contact")                 # franka_sort.py status values
 MEASURED = SORTED + ("part_lost_at_bench",)            # weight / width / class exist
@@ -158,7 +170,7 @@ CSV_FIELDS = ["part", "t_start", "t_end", "cycle_s", "status", "label", "class",
               "mass_g", "width_mm", "dFx_N", "dFy_N", "dFz_N",
               "bench_contact", "bench_descent_mm", "bench_rest_load_g", "error",
               "mode", "tag", "force_std_N", "note", "bench", "regrasp_width_mm",
-              "tare_age_s", "confidence"]                                # V18: model probability of the decision
+              "tare_age_s", "confidence", "bench_test"]       # V18: model probability, simulated bench test result
 
 # Input ranges: UI fields, the settings file and every cycle are clamped to these (Hand / payload from the manual)
 LIMITS: Dict[str, Tuple[float, float]] = {
@@ -170,7 +182,7 @@ LIMITS: Dict[str, Tuple[float, float]] = {
     "mass_offset_g": (-200.0, 200.0), "contact_g": (1.0, 500.0), "max_descent_mm": (5.0, 200.0),
     "descent_speed_mms": (1.0, 50.0), "descent_step_mm": (0.5, 10.0), "bench_hold_s": (0.3, 3.0),
     "bench_avg_ms": (5.0, 500.0), "bench_pause_s": (0.0, 120.0), "bench_open_mm": (1.0, HAND_TRAVEL_MM),
-    "contact_pct": (5.0, 90.0), "ssd_min_conf_pct": (0.0, 99.0),
+    "contact_pct": (5.0, 90.0), "ssd_min_conf_pct": (0.0, 99.0), "defect_pct": (0.0, 100.0),
     "tare_max_age_min": (0.0, 480.0),
     "ssd_mass_min_g": (0.0, MAX_PART_G), "hdd25_mass_max_g": (0.0, MAX_PART_G),
     "w25_min_mm": (0.0, HAND_TRAVEL_MM), "w25_max_mm": (0.0, HAND_TRAVEL_MM), "hdd35_mass_min_g": (0.0, MAX_PART_G),
@@ -238,6 +250,7 @@ class Settings:
     bench_release: bool = True         # V6: open the gripper on the bench during the test, then re-grasp
     bench_open_mm: float = 10.0        # open this much wider than the measured part width (fits narrow benches)
     bench_open_full: bool = True       # V17: open fully when the part is placed (else part width + bench_open_mm)
+    defect_pct: float = 50.0           # V18: simulated bench test — chance that a part is defective (→ reject)
     # teach-in          (franka_sort.py: --teach-buttons)
     teach_buttons: bool = False
     # classification    (V18: trained model, drive_model.json)
@@ -675,6 +688,9 @@ class Controller:
             out.append("waypoints (almost) identical in " + ", ".join(flat) + " — robot would not move, teach again")
         if self.waypoints.get("to_reject") and not self.waypoints.get("home_reject"):
             out.append("'to_reject' is taught → teach 'home_reject' (way back from the reject container) too")
+        need = [p for p in ("to_reject25", "to_reject35", "home_reject") if not self.waypoints.get(p)]
+        if self.s.defect_pct > 0 and need:                  # V18: defective parts go from the bench to the reject bin
+            out.append(f"bench test defect rate {self.s.defect_pct:g} % → teach {', '.join(need)} (or set it to 0)")
         return out
 
     @staticmethod
@@ -737,6 +753,12 @@ class Controller:
             st = end_of("out_bench25")
         elif name == "to_hdd35":
             st = end_of("out_bench35")
+        elif name == "to_reject25":                      # V18: all reject paths end at the same drop pose
+            st, en = end_of("out_bench25"), end_of("to_reject")
+        elif name == "to_reject35":
+            st, en = end_of("out_bench35"), end_of("to_reject") or end_of("to_reject25")
+        elif name == "home_reject":
+            st, en = end_of("to_reject") or end_of("to_reject25") or end_of("to_reject35"), start
         elif name in HOME_CLASS:
             st, en = end_of(CLASS_TO_PATH[HOME_CLASS[name]]), start
         return st, en
@@ -1350,9 +1372,15 @@ class Controller:
         if was_teaching:
             self._set_teaching(True)
 
+    def chain_before(self, name: str) -> List[str]:
+        """Taught paths that lead to the start of 'name' (V18: home_reject via to_reject25 if to_reject is missing)."""
+        if name == "home_reject" and not self.waypoints.get("to_reject") and self.waypoints.get("to_reject25"):
+            return CHAIN_BEFORE["to_reject25"] + ["to_reject25"]
+        return CHAIN_BEFORE.get(name, [])
+
     def _goto_path_start(self, name: str) -> None:
         """Drive along the taught paths to where 'name' starts (= end of the previous path), e.g. to re-teach it."""
-        chain = CHAIN_BEFORE.get(name, [])
+        chain = self.chain_before(name)
         missing = [n for n in chain if n != LIFT and not self.waypoints.get(n)]
         if missing:
             raise RuntimeError(f"teach {', '.join(missing)} first — '{name}' starts where they end")
@@ -1664,7 +1692,7 @@ class Controller:
             mode=mode, tag=s.trial_tag.strip(), truth=truth, pred=None, status="running", mass_g=None,
             width_mm=None, df=None, f_std=None, cycle_s=None, reason="",
             bench_contact=None, bench_descent_mm=None, bench_rest_g=None, bench="", regrasp_mm=None,
-            tare_age_s=None, conf=None)
+            tare_age_s=None, conf=None, test=None)
         self.info(f"--- Part #{n} started ({mode})" + (f" · label {LABEL[truth]}" if truth else ""))
         if self._gaps_logged != self.ver["wp"]:
             self._gaps_logged = self.ver["wp"]
@@ -1831,18 +1859,27 @@ class Controller:
                 self.error(f"#{n} {why} — take it out of the {PATH_LABEL[bench_path]}")
                 self.toast(f"#{n}: {why}", "negative")
                 return res
-            # ---- 3) container: drop, then straight back to the start point
-            path_name = CLASS_TO_PATH[cls]
-            with self._step("to_bin", f"To {LABEL[cls]} container"):
+            # ---- 3) V18: simulated bench test result — defective → reject container, working → its own container
+            broken = random.random() * 100.0 < s.defect_pct
+            res["test"] = self.last["test"] = "defective" if broken else "ok"
+            self.ver["results"] += 1
+            bin_cls = "reject" if broken else cls
+            path_name = BENCH_REJECT[bench_path] if broken else CLASS_TO_PATH[cls]
+            (self.warn if broken else self.ok)(f"#{n} bench test (simulated, {s.defect_pct:g} % defect rate): "
+                                               + ("DEFECTIVE → reject container" if broken else
+                                                  f"works → {LABEL[cls]} container"))
+            # ---- 4) container: drop, then straight back to the start point
+            with self._step("to_bin", f"To {LABEL[bin_cls]} container"):
                 self._move_joints(wp[path_name], s.speed, path_name)
             with self._step("release"):
                 self._grip_move(max_w, s.open_speed)
-            self.info(f"#{n} dropped into container '{cls}'")
+            self.info(f"#{n} dropped into container '{bin_cls}'")
             with self._step("home"):
-                self._move_joints(home_from(cls), s.speed, HOME_PATH[cls])
+                self._move_joints(home_from(bin_cls), s.speed, HOME_PATH[bin_cls])
             res["status"] = "ok" if contact else "ok_no_bench_contact"
-            self.toast(f"#{n} → {LABEL[cls]} · {mass_g:.0f} g · {width_mm:.1f} mm"
-                       + ("" if contact else " · no bench contact"), "positive" if contact else "warning")
+            self.toast(f"#{n} → {LABEL[bin_cls]}" + (" (bench test: defective)" if broken else "")
+                       + f" · {mass_g:.0f} g · {width_mm:.1f} mm" + ("" if contact else " · no bench contact"),
+                       "positive" if contact and not broken else "warning")
             return res
         except Abort:
             res.update(status="aborted", reason="stopped by user")
@@ -2285,7 +2322,7 @@ class Controller:
                         r["reason"] if r["status"] in ("error", "aborted") else "",
                         r["mode"], r["tag"], _fmt(r["f_std"], 3),
                         r["reason"], r.get("bench", ""), _fmt(r.get("regrasp_mm"), 2), _fmt(r.get("tare_age_s"), 0),
-                        _fmt(r.get("conf"), 3)])
+                        _fmt(r.get("conf"), 3), r.get("test") or ""])
         return buf.getvalue()
 
     def _write_session_csv(self) -> None:
@@ -2699,6 +2736,10 @@ class RobotPanels:
                 self._switch("Open fully at the bench", "bench_open_full",
                              "Placed → open all the way → test → down to the seat (first point of the exit path) "
                              "→ grasp. Off = open only to part width + 'Open wider than part'")
+                self._num("Defect rate (simulated test)", "defect_pct", 0, 100, 5, "%", full=True,
+                          tip="V18: after the bench test the part counts as defective with this chance and goes to "
+                              "the reject container (to_reject25 / to_reject35), otherwise to its own container. "
+                              "0 = every part works")
                 self._switch("Wait for ‘Continue’ on the bench", "bench_wait",
                              "Instead of the test time: keep the part on the bench until you press Continue "
                              "(franka_sort.py --bench-wait)")
@@ -2833,7 +2874,8 @@ class RobotPanels:
         with card("Test drive", "route", "Drive taught paths one after another — no gripper actions"):
             with ui.row().classes("gap-2 w-full items-center"):
                 ui.label("Route").classes("field-label")
-                for key, lbl in (("ssd", "SSD"), ("hdd25", "HDD 2.5″"), ("hdd35", "HDD 3.5″"), ("reject", "Reject")):
+                for key, lbl in (("ssd", "SSD"), ("hdd25", "HDD 2.5″"), ("hdd35", "HDD 3.5″"), ("reject", "Reject"),
+                                 ("bad25", "Defect 2.5″"), ("bad35", "Defect 3.5″")):
                     ui.button(lbl, on_click=lambda key=key: self.w_drive.set_value(list(ROUTES[key])), color=None) \
                         .props("outline dense no-caps").classes("btn-outline") \
                         .tooltip("Select: " + " → ".join(PATH_LABEL[n] for n in ROUTES[key]))
@@ -2930,7 +2972,7 @@ class RobotPanels:
     async def _goto_path_start(self) -> None:
         c = self.c
         name = c.draft_path
-        chain = [n for n in CHAIN_BEFORE.get(name, []) if n != LIFT]
+        chain = [n for n in c.chain_before(name) if n != LIFT]
         how = ("start point → " + " → ".join(PATH_LABEL[n] for n in chain)) if chain else "the start point"
         if await self._confirm(f"Drive to where '{PATH_LABEL[name]}' starts?",
                                f"The arm drives along the taught paths ({how}), back to the start first if it is not "

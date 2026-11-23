@@ -146,7 +146,9 @@ class DashboardController(Controller):
              f"| Holder empty (no grasp) | {st_count.get(EMPTY, 0)} |",
              f"| Lost at bench / error / stopped | {st_count.get('part_lost_at_bench', 0)} / "
              f"{st_count.get('error', 0)} / {st_count.get('aborted', 0)} |",
-             f"| Dry runs (not in the results) | {dry} |", ""]
+             f"| Dry runs (not in the results) | {dry} |",
+             f"| Bench test (simulated, V18): works / defective → reject | {sum(r.get('test') == 'ok' for r in rs)} / "
+             f"{sum(r.get('test') == 'defective' for r in rs)} |", ""]
         # ---- cycle time & throughput
         ct = _stats([float(r["cycle_s"]) for r in done if r.get("cycle_s") is not None])
         L += ["## Cycle time (sorted parts)", ""]
@@ -1275,7 +1277,8 @@ class Page(RobotPanels):
         elif r["status"] == EMPTY:
             title, color, sub = "No drive found", STATUS["warning"], "the holder was empty"
         elif r.get("pred") and r.get("mass_g") is not None:
-            dest = "the reject container" if r["pred"] == "reject" else f"the {LABEL[r['pred']]} container"
+            dest = ("the reject container (bench test: defective)" if r.get("test") == "defective" else
+                    "the reject container" if r["pred"] == "reject" else f"the {LABEL[r['pred']]} container")
             if r["mode"] == "measure":
                 where = "measured, put back into the holder"
             elif r["status"] == "sorting":
@@ -1509,7 +1512,8 @@ class Page(RobotPanels):
         self.r_cycle.set_text(f"{r['cycle_s']:.1f}" if r.get("cycle_s") else "…")
         mode = {"sort": "sorted", "measure": "measured, part put back"}.get(r["mode"], r["mode"])
         note = {"sorting": " · bench & container …", "ok_no_bench_contact": " · no bench contact",
-                "part_lost_at_bench": " · part LOST at the bench"}.get(status, "")
+                "part_lost_at_bench": " · part LOST at the bench"}.get(status, "") \
+            + (" · bench test: defective → reject" if r.get("test") == "defective" else "")
         self.l_res_meta.set_text(f"#{r['n']} · {r['time']} · {mode}{note}")
         self.r_reason.set_text(r.get("reason") or "")
         if r.get("truth") and status in MEASURED + ("sorting", EMPTY):
@@ -1602,7 +1606,8 @@ class Page(RobotPanels):
             pred = r["pred"] if r["status"] in MEASURED else ("none" if r["status"] == EMPTY else None)
             bc = r.get("bench_contact")
             bench = "—" if bc is None else (r.get("bench", "").replace("Bench ", "") + (" ✓ " if bc else " ✗ ")
-                                            + f"{r.get('bench_descent_mm') or 0:.0f} mm").strip()
+                                            + f"{r.get('bench_descent_mm') or 0:.0f} mm").strip() \
+                + (" · defective" if r.get("test") == "defective" else "")
             rows.append(dict(
                 n=r["n"], time=r["time"], tag=r["tag"], mode=r["mode"], truth=r["truth"] or "",
                 pred_label=LABEL.get(pred, "—") if pred else "—", pred_color=self._col(pred) if pred else th["grid"],

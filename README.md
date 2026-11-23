@@ -28,6 +28,7 @@ python3 Franka_Dashboard_V18.py                # öffnet http://localhost:8080 i
 
 - Worker-Ansicht: http://localhost:8080/?view=worker. Dort bestätigt der Worker nach jedem Teil mit „Correct“ oder „Wrong“, ob die Entscheidung stimmt. Bei „Wrong“ wählt er das tatsächliche Teil. Die Eingabe landet als „Actual“ in Confusion Matrix, CSV und Summary.
 - Die Roboter-IP stellst du im Dashboard unter „Connection“ ein (Standard 172.16.0.2), sie bleibt gespeichert. Die Wegpunktdatei steht unter „Data & files“.
+- Nach dem Bench-Test entscheidet das Dashboard per Zufall, ob ein Teil defekt ist: defekt → Reject-Kiste, sonst in seine SSD- oder HDD-Kiste. Die Wahrscheinlichkeit stellst du unter „Testing bench“ → „Defect rate“ ein (Standard 50 %, 0 % schaltet es ab).
 - Beenden mit Strg+C im Terminal.
 
 ### Klassifikationsmodell trainieren
@@ -47,7 +48,7 @@ Nach dem Training das Dashboard neu starten, es liest `drive_model.json` nur bei
 
 ## Teach-in-Ablauf
 
-Alle 15 Pfade, jeder mit mindestens 5 Wegpunkten. Halte die Reihenfolge ein: Jeder Pfad muss dort beginnen, wo der vorige endet. Die Kästchen kannst du beim Teachen abhaken.
+Alle 17 Pfade, jeder mit mindestens 5 Wegpunkten. Halte die Reihenfolge ein: Jeder Pfad muss dort beginnen, wo der vorige endet. Die Kästchen kannst du beim Teachen abhaken.
 
 ## Übersicht
 
@@ -67,7 +68,9 @@ Alle 15 Pfade, jeder mit mindestens 5 Wegpunkten. Halte die Reihenfolge ein: Jed
 | 12 | `to_hdd35` | Ende von `out_bench35` | Abwurf über der HDD-3.5″-Kiste | ja |
 | 13 | `home_hdd35` | Abwurf über der HDD-3.5″-Kiste | Startpunkt | ja |
 | 14 | `to_reject` | Wiegeplatz | Abwurf über der Reject-Kiste | nur mit Reject |
-| 15 | `home_reject` | Abwurf über der Reject-Kiste | Startpunkt | wenn `to_reject` geteacht |
+| 15 | `home_reject` | Abwurf über der Reject-Kiste | Startpunkt | mit `to_reject` oder Defect rate > 0 |
+| 16 | `to_reject25` | Ende von `out_bench25` | Abwurf über der Reject-Kiste | bei Defect rate > 0 |
+| 17 | `to_reject35` | Ende von `out_bench35` | Abwurf über der Reject-Kiste | bei Defect rate > 0 |
 
 ## Vorbereitung und Grundregeln
 
@@ -249,7 +252,7 @@ Nur nötig, wenn „Reject implausible parts“ an ist. Rejects fahren nicht üb
 
 ## 15. `home_reject`: von der Reject-Kiste zurück zum Startpunkt
 
-Pflicht, sobald `to_reject` geteacht ist. Direkt im Anschluss.
+Pflicht, sobald `to_reject` geteacht ist oder die Defect rate über 0 liegt. Direkt im Anschluss. Ohne `to_reject` teachst du zuerst 16 (`to_reject25`) und dann diesen Pfad. Der Drive-Button fährt dann über die 2.5″-Bench zur Reject-Kiste.
 
 - [ ] **P1 Abwurfpose:** sofort W.
 - [ ] **P2:** mit den Straight-Buttons senkrecht hoch, aus der Kiste heraus. W.
@@ -258,10 +261,32 @@ Pflicht, sobald `to_reject` geteacht ist. Direkt im Anschluss.
 - [ ] **P5 Startpunkt:** „Finish at the start point“ drücken.
 - [ ] **Speichern.**
 
+## 16. `to_reject25`: von der 2.5″-Bench-Ausfahrt zur Reject-Kiste
+
+Nötig, wenn die Defect rate unter „Testing bench“ über 0 liegt (Standard 50 %). Nach dem Bench-Test entscheidet das Dashboard per Zufall, ob das Teil defekt ist. Defekte SSDs und HDDs 2.5″ fahren über diesen Pfad in die Reject-Kiste und dann über `home_reject` zurück. Der Drive-Button fährt die Kette bis zum Ende von `out_bench25`. Nimm dort ein SSD mit „Test grasp“ in den Greifer.
+
+- [ ] **P1 Ende von `out_bench25`:** sofort W.
+- [ ] **P2 Zwischenpunkt** um Hindernisse herum.
+- [ ] **P3 Zwischenpunkt** um Hindernisse herum.
+- [ ] **P4:** 10 bis 15 cm über der Reject-Kiste.
+- [ ] **P5 Abwurfpose:** „Finish at the end of to_reject“ drücken. Damit endet der Pfad exakt dort, wo `home_reject` beginnt. Ohne `to_reject` legst du die Abwurfpose selbst fest: mittig über der Kiste, die Unterkante des Laufwerks wenige Zentimeter über dem Rand. W.
+- [ ] **Speichern.** Drück dann „Open gripper“.
+
+## 17. `to_reject35`: von der 3.5″-Bench-Ausfahrt zur Reject-Kiste
+
+Nötig, wenn die Defect rate über 0 liegt. Defekte HDDs 3.5″ fahren über diesen Pfad in die Reject-Kiste. Der Drive-Button fährt die Kette bis zum Ende von `out_bench35`. Nimm dort eine HDD 3.5″ mit „Test grasp“ in den Greifer und stütz den Arm.
+
+- [ ] **P1 Ende von `out_bench35`:** sofort W.
+- [ ] **P2 Zwischenpunkt** um Hindernisse herum, mit Abstand zur 2.5″-Bench.
+- [ ] **P3 Zwischenpunkt** um Hindernisse herum.
+- [ ] **P4:** 10 bis 15 cm über der Reject-Kiste.
+- [ ] **P5 Abwurfpose:** „Finish at the end of to_reject“ drücken, ohne `to_reject` „Finish at the end of to_reject25“.
+- [ ] **Speichern.** Drück dann „Open gripper“.
+
 ## Prüfen und Testen
 
 - [ ] **Statuschips grün.** Im Sortierzyklus müssen vor allem „Paths 12/12“, „Paths connected“ und „Bench seats“ grün sein.
-- [ ] **Test drive je Route.** Fahr nacheinander die Routen SSD, HDD 2.5″, HDD 3.5″ und Reject, mit der Hand am STOP. Der Bestätigungsdialog listet ungeteachte Direktfahrten auf. Erwartet ist dort nur der kurze Schritt vom Anfahrpunkt hinunter zum Sitz in der Bench.
+- [ ] **Test drive je Route.** Fahr nacheinander die Routen SSD, HDD 2.5″, HDD 3.5″, Reject, Defect 2.5″ und Defect 3.5″, mit der Hand am STOP. Der Bestätigungsdialog listet ungeteachte Direktfahrten auf. Erwartet ist dort nur der kurze Schritt vom Anfahrpunkt hinunter zum Sitz in der Bench.
 - [ ] **Dry Run pro Kiste,** ohne Teil.
 - [ ] **„Measure only“** mit je einem echten Teil pro Typ. Das prüft Greifen, Hub, Wiegen und Zurücklegen.
 - [ ] **„Sort part“ einzeln,** je ein Teil pro Typ.
