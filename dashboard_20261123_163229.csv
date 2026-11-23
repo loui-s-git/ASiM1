@@ -1,0 +1,2 @@
+part,t_start,t_end,cycle_s,status,label,class,correct,mass_g,width_mm,dFx_N,dFy_N,dFz_N,bench_contact,bench_descent_mm,bench_rest_load_g,error,mode,tag,force_std_N,width_thr_mm,mass_thr_g,note,bench,regrasp_width_mm,tare_age_s
+1,2026-11-23T16:33:15,2026-11-23T16:34:03,48.3,error,,ssd,,59.3,6.15,-0.127,0.341,0.454,,,,MotionError: line up above the seat: stopped 11 mm from its goal (cartesian_reflex),sort,,0.052,20.0,90.0,MotionError: line up above the seat: stopped 11 mm from its goal (cartesian_reflex),Bench 2.5″,,0

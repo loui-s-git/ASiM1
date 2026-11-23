@@ -1,0 +1,249 @@
+# Franka Dashboard V17 — session 20261123_163229
+# started 2026-11-23 16:32:29 on bloo52-NucBoxG5 · Python 3.12.3 · numpy 2.5.5 · nicegui 3.19.0 · panda-python 1.1.1
+# robot 172.16.0.2 · trial tag '' · log folder /home/bloo52/Downloads/logs
+# waypoints /home/bloo52/Downloads/waypoints.json: to_bench 9 pts, to_weigh 4 pts, to_bench25 8 pts, to_hdd25 6 pts, to_bench35 7 pts, out_bench25 5 pts, out_bench35 7 pts, to_hdd35 7 pts, to_ssd 8 pts, home_hdd35 5 pts, home_hdd25 4 pts, home_ssd 8 pts, start_to_weigh 5 pts, to_holder 7 pts
+# settings {"auto_max_empty": 3, "auto_pause_s": 1.5, "auto_recover": true, "bench_avg_ms": 50.0, "bench_hold_s": 0.7, "bench_open_full": true, "bench_open_mm": 10.0, "bench_pause_s": 10.0, "bench_release": true, "bench_wait": false, "confirm_moves": true, "contact_g": 40.0, "contact_pct": 35.0, "dark": true, "descent_method": "impedance", "descent_speed_mms": 10.0, "descent_step_mm": 2.0, "empty_width_mm": 2.0, "eps_inner_mm": 5.0, "eps_outer_mm": 0.0, "force_mode": "norm", "goal_tol_rad": 0.05, "grasp_force_n": 70.0, "grasp_speed_mms": 30.0, "grasp_width_mm": 0.0, "gravity": 9.81, "hdd25_mass_max_g": 180.0, "hdd35_mass_max_g": 900.0, "hdd35_mass_min_g": 300.0, "hdd35_w_max_mm": 30.0, "home_speed": 0.15, "homing_on_connect": false, "lift_mm": 50.0, "mass_hdd25_g": 90.0, "mass_offset_g": 0.0, "mass_scale": 1.0, "max_descent_mm": 80.0, "measure_s": 1.0, "open_speed_mms": 30.0, "reject_enabled": false, "results_dir": "logs", "robot_ip": "172.16.0.2", "settings_version": 6, "settle_s": 1.0, "speed": 0.2, "ssd_mass_min_g": 30.0, "tare_every_part": true, "tare_max_age_min": 30.0, "teach_buttons": false, "trial_tag": "", "w25_max_mm": 16.0, "w25_min_mm": 5.0, "waypoints_file": "waypoints.json", "width_hdd35_mm": 20.0}
+# files of this session: dashboard_20261123_163229.csv (one row per part), _steps.csv (every step), _weighing.csv (raw tare/load forces), _bench.csv (descent curve), _summary.md (KPIs)
+2026-11-23 16:32:29.968  INFO    Franka Dashboard V17 started — robot 172.16.0.2, logging to /home/bloo52/Downloads/logs/dashboard_20261123_163229.log
+2026-11-23 16:32:41.481  DEBUG   job 'connect' started
+2026-11-23 16:32:41.592  INFO    Connecting to robot 172.16.0.2 (FCI) …
+2026-11-23 16:32:41.628  DEBUG   panda_py: Connected to robot (172.16.0.2).
+2026-11-23 16:32:41.633  DEBUG   panda_py: Using FER joint limits (robot server version 5).
+2026-11-23 16:32:41.786  DEBUG   robot at connect: mode kIdle, errors '', q = [0.875, 0.516, 0.46, -1.732, -0.128, 1.965, -1.139] rad, gripper max width 81.0 mm, width 16.1 mm, grasped False
+2026-11-23 16:32:41.786  INFO    Connected to 172.16.0.2 · panda_py 1.1.1 · live state during motions: between motions
+2026-11-23 16:32:41.787  DEBUG   job 'connect' done after 0.31 s
+2026-11-23 16:32:44.320  DEBUG   job 'disconnect' started
+2026-11-23 16:32:44.325  DEBUG   panda_py: Panda class destructor invoked (172.16.0.2).
+2026-11-23 16:32:44.325  INFO    Disconnected
+2026-11-23 16:32:44.326  DEBUG   job 'disconnect' done after 0.00 s
+2026-11-23 16:32:50.428  DEBUG   job 'connect' started
+2026-11-23 16:32:50.431  INFO    Connecting to robot 172.16.0.2 (FCI) …
+2026-11-23 16:32:50.449  DEBUG   panda_py: Connected to robot (172.16.0.2).
+2026-11-23 16:32:50.449  DEBUG   panda_py: Using FER joint limits (robot server version 5).
+2026-11-23 16:32:50.772  DEBUG   robot at connect: mode kIdle, errors '', q = [0.875, 0.516, 0.46, -1.732, -0.128, 1.965, -1.139] rad, gripper max width 81.0 mm, width 16.1 mm, grasped False
+2026-11-23 16:32:50.772  INFO    Connected to 172.16.0.2 · panda_py 1.1.1 · live state during motions: between motions
+2026-11-23 16:32:50.772  DEBUG   job 'connect' done after 0.34 s
+2026-11-23 16:32:52.746  DEBUG   job 'disconnect' started
+2026-11-23 16:32:52.762  DEBUG   panda_py: Panda class destructor invoked (172.16.0.2).
+2026-11-23 16:32:52.768  INFO    Disconnected
+2026-11-23 16:32:52.775  DEBUG   job 'disconnect' done after 0.03 s
+2026-11-23 16:32:53.037  DEBUG   job 'connect' started
+2026-11-23 16:32:53.039  INFO    Connecting to robot 172.16.0.2 (FCI) …
+2026-11-23 16:32:53.071  DEBUG   panda_py: Connected to robot (172.16.0.2).
+2026-11-23 16:32:53.076  DEBUG   panda_py: Using FER joint limits (robot server version 5).
+2026-11-23 16:32:53.115  DEBUG   robot at connect: mode kIdle, errors '', q = [0.875, 0.516, 0.46, -1.732, -0.128, 1.965, -1.139] rad, gripper max width 81.0 mm, width 16.1 mm, grasped False
+2026-11-23 16:32:53.115  INFO    Connected to 172.16.0.2 · panda_py 1.1.1 · live state during motions: between motions
+2026-11-23 16:32:53.145  DEBUG   job 'connect' done after 0.11 s
+2026-11-23 16:33:15.624  DEBUG   job 'sort cycle' started
+2026-11-23 16:33:15.626  INFO    --- Part #1 started (sort)
+2026-11-23 16:33:15.627  WARNING Untaught moves between paths (re-teach with 'Drive to end of previous path'): home_ssd → start point 1.67 rad; home_hdd25 → start point 1.67 rad; end of out_bench25 → to_ssd 1.56 rad; end of out_bench25 → to_hdd25 1.31 rad; home_hdd35 → start point 1.23 rad; start point → start_to_weigh 1.21 rad; end of to_hdd25 → home_hdd25 0.71 rad; weigh spot → to_bench35 0.67 rad; end of to_hdd35 → home_hdd35 0.62 rad; end of to_ssd → home_ssd 0.49 rad; lift pose above the holder → to_weigh 0.43 rad
+2026-11-23 16:33:18.252  DEBUG   gripper move to 81.0 mm at 30 mm/s → True in 2.62 s
+2026-11-23 16:33:18.293  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:33:18.333  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:33:27.197  DEBUG   move 'start_to_weigh (empty)': 5 waypoint(s), speed 0.20 → True in 8.91 s
+2026-11-23 16:33:29.199  DEBUG   tare: 717 samples, F = [0.624, 0.6, 0.157] N, σ = 0.052 N
+2026-11-23 16:33:29.199  INFO      tare stored (empty gripper at the weigh spot): F = [0.624, 0.6, 0.157] N, σ = 0.052 N
+2026-11-23 16:33:29.200  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:33:29.206  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:33:29.217  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:33:41.060  DEBUG   move 'start_to_weigh backwards → start → to_holder': 11 waypoint(s), speed 0.20 → True in 11.86 s
+2026-11-23 16:33:44.615  DEBUG   gripper grasp: width 0 mm, 30 mm/s, 70 N, eps inner 5 mm / outer 81.0 mm → True in 3.55 s
+2026-11-23 16:33:44.663  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:33:44.673  DEBUG   panda_py: Initializing motion generation (moveToPose).
+2026-11-23 16:33:44.679  DEBUG   panda_py: Starting new controller (CartesianTrajectory).
+2026-11-23 16:33:46.167  DEBUG   move 'lift (with part)': to [153.3, 320.1, 74.2] mm, speed 0.20 → True in 1.50 s
+2026-11-23 16:33:46.169  DEBUG   panda_py: Stopping active controller (CartesianTrajectory).
+2026-11-23 16:33:46.172  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:33:46.178  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:33:49.379  DEBUG   move 'to_weigh (with part)': 4 waypoint(s), speed 0.20 → True in 3.21 s
+2026-11-23 16:33:51.389  DEBUG   load: 712 samples, F = [0.497, 0.941, 0.611] N, σ = 0.030 N
+2026-11-23 16:33:51.395  INFO    #1 measured at the weigh spot: 59.3 g, 6.15 mm -> ssd
+2026-11-23 16:33:51.395  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:33:51.399  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:33:51.421  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:34:01.843  DEBUG   move 'to_bench25': 8 waypoint(s), speed 0.20 → True in 10.45 s
+2026-11-23 16:34:01.846  INFO      seat (first point of out_bench25): 70 mm below, 18 mm beside the approach pose, gripper turned 11°
+2026-11-23 16:34:01.846  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:34:01.848  DEBUG   panda_py: Initializing motion generation (moveToPose).
+2026-11-23 16:34:01.852  DEBUG   panda_py: Starting new controller (CartesianTrajectory).
+2026-11-23 16:34:03.935  WARNING panda_py: Motion finished 0.0110 m and 7.42 deg from the goal, above the success threshold of 0.0200 m and 5.73 deg. Consider a higher impedance or a slower speed_factor.
+2026-11-23 16:34:03.936  DEBUG   move 'line up above the seat': to [-228.9, 243.6, 149.9] mm, speed 0.10 → False in 2.09 s
+2026-11-23 16:34:03.936  ERROR   Part #1: MotionError: line up above the seat: stopped 11 mm from its goal (cartesian_reflex)
+2026-11-23 16:34:03.937  WARNING Robot errors cleared — the arm stays where it is. Check the cause, clear the way, then 'Go to start' (drives back along the taught paths)
+2026-11-23 16:34:03.939  DEBUG   #1 step times: open 2.65 s, to_weigh 8.91 s, tare 2.00 s, to_holder 11.86 s, grasp 3.60 s, lift 4.72 s, weigh 2.02 s, classify 0.00 s, to_bench 10.45 s, bench 2.09 s
+2026-11-23 16:34:03.939  INFO    --- Part #1 error in 48.3 s
+2026-11-23 16:34:03.939  DEBUG   job 'sort cycle' done after 48.32 s
+2026-11-23 16:34:32.547  DEBUG   job 'open gripper' started
+2026-11-23 16:34:35.610  DEBUG   gripper move to 81.0 mm at 30 mm/s → True in 3.06 s
+2026-11-23 16:34:35.682  DEBUG   job 'open gripper' done after 3.13 s
+2026-11-23 16:34:44.285  DEBUG   job 'go to start' started
+2026-11-23 16:34:44.287  INFO    Go to start via to_bench25 (point 8, 0.05 rad away) — 18 waypoint(s) along taught paths
+2026-11-23 16:34:44.288  DEBUG   panda_py: Stopping active controller (CartesianTrajectory).
+2026-11-23 16:34:44.292  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:34:44.321  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:35:02.235  DEBUG   move 'to start via to_bench25 (point 8, 0.05 rad away)': 18 waypoint(s), speed 0.15 → True in 17.95 s
+2026-11-23 16:35:02.236  INFO    At the start point
+2026-11-23 16:35:02.237  DEBUG   job 'go to start' done after 17.95 s
+2026-11-23 16:35:50.750  DEBUG   job 'dry run → SSD' started
+2026-11-23 16:35:50.752  INFO    --- Part #2 started (dry)
+2026-11-23 16:35:51.136  DEBUG   gripper move to 81.0 mm at 30 mm/s → True in 0.38 s
+2026-11-23 16:35:51.265  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:35:51.276  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:35:51.309  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:35:51.319  ERROR   panda_py: Control loop interruped: libfranka: Move command rejected: command not possible in the current mode ("User stopped")!
+2026-11-23 16:35:51.323  WARNING panda_py: Motion finished 2.6098 rad from the goal, above the success threshold. Consider a higher stiffness or a slower speed_factor.
+2026-11-23 16:35:51.323  DEBUG   move 'to_holder': 7 waypoint(s), speed 0.20 → False in 0.06 s
+2026-11-23 16:35:51.324  ERROR   Part #2: MotionError: to_holder: motion aborted — robot mode User stop, errors: cartesian_reflex
+2026-11-23 16:35:51.325  WARNING Robot errors cleared — the arm stays where it is. Check the cause, clear the way, then 'Go to start' (drives back along the taught paths)
+2026-11-23 16:35:51.325  DEBUG   #2 step times: open 0.51 s, to_holder 0.06 s
+2026-11-23 16:35:51.325  INFO    --- Part #2 error in 0.6 s
+2026-11-23 16:35:51.325  DEBUG   job 'dry run → SSD' done after 0.58 s
+2026-11-23 16:36:02.511  DEBUG   job 'dry run → SSD' started
+2026-11-23 16:36:02.512  INFO    --- Part #3 started (dry)
+2026-11-23 16:36:02.984  DEBUG   gripper move to 81.0 mm at 30 mm/s → True in 0.47 s
+2026-11-23 16:36:03.117  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:36:03.126  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:36:03.150  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:36:12.138  DEBUG   move 'to_holder': 7 waypoint(s), speed 0.20 → True in 9.02 s
+2026-11-23 16:36:12.139  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:36:12.146  DEBUG   panda_py: Initializing motion generation (moveToPose).
+2026-11-23 16:36:12.163  DEBUG   panda_py: Starting new controller (CartesianTrajectory).
+2026-11-23 16:36:13.653  DEBUG   move 'lift (dry run)': to [153.3, 320.1, 74.2] mm, speed 0.20 → True in 1.51 s
+2026-11-23 16:36:13.655  DEBUG   panda_py: Stopping active controller (CartesianTrajectory).
+2026-11-23 16:36:13.663  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:36:13.678  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:36:16.905  DEBUG   move 'to_weigh (dry run)': 4 waypoint(s), speed 0.20 → True in 3.25 s
+2026-11-23 16:36:16.906  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:36:16.909  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:36:16.919  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:36:27.345  DEBUG   move 'to_bench25': 8 waypoint(s), speed 0.20 → True in 10.44 s
+2026-11-23 16:36:27.348  INFO      seat (first point of out_bench25): 70 mm below, 18 mm beside the approach pose, gripper turned 11°
+2026-11-23 16:36:27.348  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:36:27.350  DEBUG   panda_py: Initializing motion generation (moveToPose).
+2026-11-23 16:36:27.354  DEBUG   panda_py: Starting new controller (CartesianTrajectory).
+2026-11-23 16:36:29.443  WARNING panda_py: Motion finished 0.0110 m and 7.40 deg from the goal, above the success threshold of 0.0200 m and 5.73 deg. Consider a higher impedance or a slower speed_factor.
+2026-11-23 16:36:29.443  DEBUG   move 'line up above the seat (dry run)': to [-228.9, 243.6, 150.0] mm, speed 0.10 → False in 2.09 s
+2026-11-23 16:36:29.444  ERROR   Part #3: MotionError: line up above the seat (dry run): stopped 11 mm from its goal (cartesian_reflex)
+2026-11-23 16:36:29.444  WARNING Robot errors cleared — the arm stays where it is. Check the cause, clear the way, then 'Go to start' (drives back along the taught paths)
+2026-11-23 16:36:29.445  DEBUG   #3 step times: open 0.60 s, to_holder 9.02 s, lift 4.77 s, to_bench 10.44 s, bench_out 2.10 s
+2026-11-23 16:36:29.445  INFO    --- Part #3 error in 26.9 s
+2026-11-23 16:36:29.445  DEBUG   job 'dry run → SSD' done after 26.93 s
+2026-11-23 16:37:33.705  DEBUG   job 'teaching mode on' started
+2026-11-23 16:37:33.710  DEBUG   panda_py: Stopping active controller (CartesianTrajectory).
+2026-11-23 16:37:33.712  DEBUG   panda_py: Stopping active controller (CartesianTrajectory).
+2026-11-23 16:37:33.719  DEBUG   panda_py: Starting new controller (Applied Torque).
+2026-11-23 16:37:34.022  INFO    Teaching mode ON — gravity compensation, guide the arm by hand
+2026-11-23 16:37:34.023  DEBUG   job 'teaching mode on' done after 0.32 s
+2026-11-23 16:38:45.420  DEBUG   job 'drive to the start of to_weigh' started
+2026-11-23 16:38:45.421  DEBUG   panda_py: Stopping active controller (Applied Torque).
+2026-11-23 16:38:45.711  INFO    Teaching mode OFF — arm holds its position. Clear the workspace, then 'Go to start'.
+2026-11-23 16:38:45.727  ERROR   drive to the start of to_weigh failed: RuntimeError: the arm is not close to any taught path (nearest: to_hdd35 point 3, 0.89 rad away) — guide it by hand (teaching mode) next to a taught waypoint or the start point, then try again
+2026-11-23 16:38:45.734  DEBUG   traceback:
+Traceback (most recent call last):
+  File "/home/bloo52/Downloads/Franka_Dashboard_V17.py", line 876, in _job_main
+    fn(*args)
+  File "/home/bloo52/Downloads/Franka_Dashboard_V17.py", line 1416, in _goto_path_start
+    self._drive_home()
+  File "/home/bloo52/Downloads/Franka_Dashboard_V17.py", line 1431, in _drive_home
+    route, how = self._route_home(q)
+                 ^^^^^^^^^^^^^^^^^^^
+  File "/home/bloo52/Downloads/Franka_Dashboard_V17.py", line 1301, in _route_home
+    raise RuntimeError("the arm is not close to any taught path" + near + " — guide it by hand (teaching "
+RuntimeError: the arm is not close to any taught path (nearest: to_hdd35 point 3, 0.89 rad away) — guide it by hand (teaching mode) next to a taught waypoint or the start point, then try again
+2026-11-23 16:38:45.737  DEBUG   job 'drive to the start of to_weigh' failed after 0.32 s
+2026-11-23 16:39:22.059  DEBUG   job 'dry run → HDD 3.5″' started
+2026-11-23 16:39:22.127  INFO    --- Part #4 started (dry)
+2026-11-23 16:39:22.549  DEBUG   gripper move to 81.0 mm at 30 mm/s → True in 0.42 s
+2026-11-23 16:39:22.685  DEBUG   panda_py: Stopping active controller (Applied Torque).
+2026-11-23 16:39:22.693  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:39:22.726  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:39:30.325  DEBUG   move 'to_holder': 7 waypoint(s), speed 0.20 → True in 7.68 s
+2026-11-23 16:39:30.327  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:39:30.332  DEBUG   panda_py: Initializing motion generation (moveToPose).
+2026-11-23 16:39:30.341  DEBUG   panda_py: Starting new controller (CartesianTrajectory).
+2026-11-23 16:39:31.828  DEBUG   move 'lift (dry run)': to [153.3, 320.2, 74.3] mm, speed 0.20 → True in 1.50 s
+2026-11-23 16:39:31.830  DEBUG   panda_py: Stopping active controller (CartesianTrajectory).
+2026-11-23 16:39:31.832  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:39:31.835  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:39:35.144  DEBUG   move 'to_weigh (dry run)': 4 waypoint(s), speed 0.20 → True in 3.31 s
+2026-11-23 16:39:35.145  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:39:35.169  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:39:35.198  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:39:43.646  DEBUG   move 'to_bench35': 7 waypoint(s), speed 0.20 → True in 8.50 s
+2026-11-23 16:39:43.649  INFO      seat (first point of out_bench35): 49 mm below, 1 mm beside the approach pose, gripper turned 1°
+2026-11-23 16:39:43.649  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:39:43.651  DEBUG   panda_py: Initializing motion generation (moveToPose).
+2026-11-23 16:39:43.660  DEBUG   panda_py: Starting new controller (CartesianTrajectory).
+2026-11-23 16:39:45.067  DEBUG   move 'line up above the seat (dry run)': to [-229.0, 176.0, 181.4] mm, speed 0.10 → True in 1.42 s
+2026-11-23 16:39:45.068  DEBUG   panda_py: Stopping active controller (CartesianTrajectory).
+2026-11-23 16:39:45.070  DEBUG   panda_py: Initializing motion generation (moveToPose).
+2026-11-23 16:39:45.074  DEBUG   panda_py: Starting new controller (CartesianTrajectory).
+2026-11-23 16:39:46.704  DEBUG   move 'down to the seat (dry run)': to [-229.0, 176.0, 132.3] mm, speed 0.10 → True in 1.64 s
+2026-11-23 16:39:46.705  DEBUG   panda_py: Stopping active controller (CartesianTrajectory).
+2026-11-23 16:39:46.707  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:39:46.715  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:39:50.416  DEBUG   move 'out_bench35 (dry run)': 7 waypoint(s), speed 0.20 → True in 3.71 s
+2026-11-23 16:39:50.417  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:39:50.438  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:39:50.447  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:40:00.767  DEBUG   move 'to_hdd35': 7 waypoint(s), speed 0.20 → True in 10.35 s
+2026-11-23 16:40:00.768  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:40:00.791  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:40:00.798  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:40:09.860  DEBUG   move 'home_hdd35': 6 waypoint(s), speed 0.20 → True in 9.09 s
+2026-11-23 16:40:09.861  INFO    #4 dry run to the HDD 3.5″ container finished in 47.7 s
+2026-11-23 16:40:09.861  DEBUG   #4 step times: open 0.51 s, to_holder 7.68 s, lift 4.82 s, to_bench 8.50 s, bench_out 6.77 s, to_bin 10.35 s, home 9.09 s
+2026-11-23 16:40:09.862  INFO    --- Part #4 ok in 47.7 s
+2026-11-23 16:40:09.862  DEBUG   job 'dry run → HDD 3.5″' done after 47.73 s
+2026-11-23 16:40:13.671  DEBUG   job 'teaching mode on' started
+2026-11-23 16:40:13.674  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:40:13.678  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:40:13.692  DEBUG   panda_py: Starting new controller (Applied Torque).
+2026-11-23 16:40:14.000  INFO    Teaching mode ON — gravity compensation, guide the arm by hand
+2026-11-23 16:40:14.000  DEBUG   job 'teaching mode on' done after 0.33 s
+2026-11-23 16:40:36.950  INFO    Backup of the previous file → waypoints.json.bak
+2026-11-23 16:40:36.960  WARNING Deleted path to_bench25
+2026-11-23 16:40:49.965  INFO    to_bench25: waypoint 1  q = [1.68, 0.564, -0.37, -1.841, -0.238, 0.962, -1.166]
+2026-11-23 16:41:08.542  INFO    to_bench25: waypoint 2  q = [1.741, 0.535, -0.218, -1.84, -0.237, 0.962, -1.166]
+2026-11-23 16:41:19.662  INFO    to_bench25: waypoint 3  q = [1.116, 0.094, 1.048, -2.128, -0.238, 0.962, -1.166]
+2026-11-23 16:41:30.249  INFO    to_bench25: waypoint 4  q = [1.073, -0.558, 1.184, -2.416, 0.229, 1.625, -1.148]
+2026-11-23 16:41:41.411  INFO    to_bench25: waypoint 5  q = [1.42, -0.707, 0.987, -2.872, 0.758, 2.213, -0.878]
+2026-11-23 16:41:49.820  INFO    to_bench25: waypoint 6  q = [1.41, -0.519, 1.107, -2.9, 0.78, 2.515, -0.877]
+2026-11-23 16:42:11.926  INFO    to_bench25: waypoint 7  q = [1.131, -0.92, 1.577, -2.864, 1.349, 2.226, -0.878]
+2026-11-23 16:42:21.979  INFO    to_bench25: waypoint 8  q = [1.074, -0.932, 1.663, -2.846, 1.388, 2.221, -0.878]
+2026-11-23 16:42:29.893  INFO    Saved path to_bench25 (8 waypoints) → /home/bloo52/Downloads/waypoints.json
+2026-11-23 16:42:37.664  DEBUG   job 'teaching mode off' started
+2026-11-23 16:42:37.665  DEBUG   panda_py: Stopping active controller (Applied Torque).
+2026-11-23 16:42:37.884  INFO    Teaching mode OFF — arm holds its position. Clear the workspace, then 'Go to start'.
+2026-11-23 16:42:37.885  DEBUG   job 'teaching mode off' done after 0.22 s
+2026-11-23 16:42:49.008  DEBUG   job 'dry run → SSD' started
+2026-11-23 16:42:49.010  INFO    --- Part #5 started (dry)
+2026-11-23 16:42:49.014  WARNING Untaught moves between paths (re-teach with 'Drive to end of previous path'): home_ssd → start point 1.67 rad; home_hdd25 → start point 1.67 rad; end of out_bench25 → to_ssd 1.56 rad; end of out_bench25 → to_hdd25 1.31 rad; home_hdd35 → start point 1.23 rad; start point → start_to_weigh 1.21 rad; end of to_hdd25 → home_hdd25 0.71 rad; weigh spot → to_bench35 0.67 rad; end of to_hdd35 → home_hdd35 0.62 rad; end of to_ssd → home_ssd 0.49 rad; lift pose above the holder → to_weigh 0.43 rad
+2026-11-23 16:42:51.213  DEBUG   gripper move to 81.0 mm at 30 mm/s → True in 2.20 s
+2026-11-23 16:42:51.338  DEBUG   panda_py: Stopping active controller (Applied Torque).
+2026-11-23 16:42:51.343  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:42:51.369  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:42:58.827  DEBUG   move 'to_holder': 7 waypoint(s), speed 0.20 → True in 7.49 s
+2026-11-23 16:42:58.828  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:42:58.831  DEBUG   panda_py: Initializing motion generation (moveToPose).
+2026-11-23 16:42:58.835  DEBUG   panda_py: Starting new controller (CartesianTrajectory).
+2026-11-23 16:43:00.336  DEBUG   move 'lift (dry run)': to [153.3, 320.1, 74.3] mm, speed 0.20 → True in 1.51 s
+2026-11-23 16:43:00.338  DEBUG   panda_py: Stopping active controller (CartesianTrajectory).
+2026-11-23 16:43:00.341  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:43:00.347  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:43:03.586  DEBUG   move 'to_weigh (dry run)': 4 waypoint(s), speed 0.20 → True in 3.25 s
+2026-11-23 16:43:03.587  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:43:03.658  DEBUG   panda_py: Initializing motion generation (moveToJointPosition).
+2026-11-23 16:43:03.935  DEBUG   panda_py: Starting new controller (JointTrajectory).
+2026-11-23 16:43:13.614  DEBUG   move 'to_bench25': 8 waypoint(s), speed 0.20 → True in 10.03 s
+2026-11-23 16:43:13.616  INFO      seat (first point of out_bench25): 7 mm below, 21 mm beside the approach pose, gripper turned 9°
+2026-11-23 16:43:13.616  DEBUG   panda_py: Stopping active controller (JointTrajectory).
+2026-11-23 16:43:13.618  DEBUG   panda_py: Initializing motion generation (moveToPose).
+2026-11-23 16:43:13.623  DEBUG   panda_py: Starting new controller (CartesianTrajectory).
+2026-11-23 16:43:15.551  WARNING panda_py: Motion finished 0.0117 m and 7.12 deg from the goal, above the success threshold of 0.0200 m and 5.73 deg. Consider a higher impedance or a slower speed_factor.
+2026-11-23 16:43:15.551  DEBUG   move 'line up above the seat (dry run)': to [-228.9, 243.6, 87.6] mm, speed 0.10 → False in 1.93 s
+2026-11-23 16:43:15.552  ERROR   Part #5: MotionError: line up above the seat (dry run): stopped 12 mm from its goal (cartesian_reflex)
+2026-11-23 16:43:15.553  WARNING Robot errors cleared — the arm stays where it is. Check the cause, clear the way, then 'Go to start' (drives back along the taught paths)
+2026-11-23 16:43:15.553  DEBUG   #5 step times: open 2.32 s, to_holder 7.49 s, lift 4.76 s, to_bench 10.03 s, bench_out 1.94 s
+2026-11-23 16:43:15.553  INFO    --- Part #5 error in 26.5 s
+2026-11-23 16:43:15.553  DEBUG   job 'dry run → SSD' done after 26.54 s
