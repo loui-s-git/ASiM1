@@ -1,6 +1,51 @@
-# Teach-in-Ablauf Franka Dashboard V18
+# Franka Dashboard V18
 
-Stand: 23.11.2026 · gilt für `Franka_Dashboard_V18.py` und `waypoints.json`
+Stand: 23.11.2026 · gilt für `Franka_Dashboard_V18.py`, `Franka_Robot_V18.py`, `drive_model.json` und `waypoints.json`
+
+## Terminal-Befehle auf dem Linux-Rechner
+
+Alle Befehle laufen im Terminal des Roboter-PCs (Ubuntu). Leg `Franka_Dashboard_V18.py`, `Franka_Robot_V18.py` und `drive_model.json` zusammen in denselben Ordner, hier `~/Downloads`. Gestartet wird nur `Franka_Dashboard_V18.py`, es lädt die beiden anderen Dateien selbst.
+
+Starte das Dashboard immer aus diesem Ordner. `waypoints.json`, `dashboard_settings.json` und der Ordner `logs/` liegen relativ zum aktuellen Ordner.
+
+Vor dem Start: Roboter in Desk entsperren und FCI aktivieren.
+
+### Einmalig einrichten
+
+```bash
+source ~/franka_venv/bin/activate      # venv aus install_franka.sh (numpy, panda-python)
+cd ~/Downloads
+pip install -r requirements.txt        # installiert auch nicegui, das install_franka.sh nicht mitbringt
+```
+
+### Dashboard starten
+
+```bash
+source ~/franka_venv/bin/activate
+cd ~/Downloads
+python3 Franka_Dashboard_V18.py                # öffnet http://localhost:8080 im Browser
+```
+
+- Worker-Ansicht: http://localhost:8080/?view=worker. Dort bestätigt der Worker nach jedem Teil mit „Correct“ oder „Wrong“, ob die Entscheidung stimmt. Bei „Wrong“ wählt er das tatsächliche Teil. Die Eingabe landet als „Actual“ in Confusion Matrix, CSV und Summary.
+- Die Roboter-IP stellst du im Dashboard unter „Connection“ ein (Standard 172.16.0.2), sie bleibt gespeichert. Die Wegpunktdatei steht unter „Data & files“.
+- Beenden mit Strg+C im Terminal.
+
+### Klassifikationsmodell trainieren
+
+Das Modell lernt aus `drive_dimensions.csv`, welche Kombination aus Dicke (Fingeröffnung) und Gewicht zu SSD, HDD 2.5″ oder HDD 3.5″ gehört. Die CSV liest pandas ein (`read_csv`), trainiert wird mit scikit-learn: Train/Test-Split 75/25, logistische Regression, C per Kreuzvalidierung auf dem Trainingsteil. Das Skript gibt die Testgenauigkeit und die Confusion Matrix aus und schreibt `drive_model.json`. Das Dashboard selbst braucht weder pandas noch scikit-learn, es liest nur `drive_model.json`. Installier beides deshalb in einem eigenen venv, dann bleibt das Roboter-venv unverändert.
+
+```bash
+python3 -m venv ~/train_venv                   # einmalig
+source ~/train_venv/bin/activate
+pip install -r requirements-train.txt          # einmalig: pandas, scikit-learn, numpy
+cd ~/Downloads
+python3 train_drive_model.py                   # drive_dimensions.csv → drive_model.json
+deactivate
+```
+
+Nach dem Training das Dashboard neu starten, es liest `drive_model.json` nur beim Start. Im Bereich „Classification“ schaltest du zwischen „Trained model“ und „Thresholds“ um.
+
+## Teach-in-Ablauf
 
 Alle 15 Pfade, jeder mit mindestens 5 Wegpunkten. Halte die Reihenfolge ein: Jeder Pfad muss dort beginnen, wo der vorige endet. Die Kästchen kannst du beim Teachen abhaken.
 

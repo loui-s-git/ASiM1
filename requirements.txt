@@ -1,0 +1,14 @@
+# Python packages for Franka_Dashboard_V18.py and Franka_Robot_V18.py
+# Pinned to the versions running on the robot PC (Ubuntu, Python 3.12.3), see the header of every session log.
+#
+#   source ~/franka_venv/bin/activate
+#   pip install -r requirements.txt
+#
+# install_franka.sh already installs numpy and panda-python into ~/franka_venv, but not nicegui.
+
+numpy==2.5.5
+nicegui==3.19.0
+
+# panda-python bundles its own libfranka build, which has to match the robot's system version
+# (this setup: libfranka 0.9.2, see install_franka.sh). Do not change this version without checking that.
+panda-python==1.1.1
