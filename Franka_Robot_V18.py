@@ -11,9 +11,9 @@ Not started on its own: Franka_Dashboard_V18.py imports this module, so keep bot
 This file holds everything that moves, sorts or configures the robot:
   constants       path model, step sets, CSV columns, input limits from the Franka manual
   settings        every adjustable variable (saved to dashboard_settings.json)
-  kinematics      Panda forward kinematics (bench seat geometry, Cartesian moves; also drives the 3D twin)
-  classification  classify() with the trained model from drive_model.json (train_drive_model.py), plus the rest
-                  load on the bench
+  kinematics      DH geometry of the 3D twin (poses come from panda_py.fk)
+  classification  classify() with the trained sklearn model from drive_model.joblib (train_drive_model.py), plus
+                  the rest load on the bench
   controller      robot connection, jobs, sorting cycle, teach-in, event log and session files
   robot panels    web UI for connection, parameters, sorting cycle, teach-in, test drive and event log
 
@@ -40,11 +40,16 @@ import traceback
 from collections import deque
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime
+from importlib import metadata
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import joblib
 import numpy as np
+import panda_py
 from nicegui import ui
+from panda_py import controllers, fk, libfranka
+from panda_py.constants import JOINT_POSITION_START
 
 
 # ═══════════════════════════════════════════════════════════════════ 1. constants
@@ -140,10 +145,6 @@ EXPECTED = {"ssd": "ssd", "hdd25": "hdd25", "hdd35": "hdd35", "other": "reject"}
 NICE_MODE = {"kIdle": "Idle", "kMove": "Moving", "kGuiding": "Guiding", "kReflex": "Reflex",
              "kUserStopped": "User stop", "kAutomaticErrorRecovery": "Recovering", "kOther": "Other"}
 
-# Panda (FER) joint limits, ready pose and max joint velocities
-Q_LOWER = np.array([-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -0.0175, -2.8973])
-Q_UPPER = np.array([2.8973, 1.7628, 2.8973, -0.0698, 2.8973, 3.7525, 2.8973])
-Q_READY = np.array([0.0, -math.pi / 4, 0.0, -3 * math.pi / 4, 0.0, math.pi / 2, math.pi / 4])
 # Limits from the Franka Emika manual (technical data, "Exercise Unterlagen/Franka Manual.pdf"):
 # payload 3 kg, Hand ≈ 1 kg, Hand grasping force up to 70 N, travel 80 mm at 30 mm/s, Cartesian speed ≤ 2 m/s.
 PAYLOAD_KG, HAND_KG = 3.0, 1.0
@@ -179,8 +180,8 @@ LIMITS: Dict[str, Tuple[float, float]] = {
     "open_speed_mms": (5.0, HAND_SPEED_MAX_MMS), "grasp_width_mm": (0.0, HAND_TRAVEL_MM),
     "eps_inner_mm": (0.0, HAND_TRAVEL_MM), "eps_outer_mm": (0.0, HAND_TRAVEL_MM), "empty_width_mm": (0.0, 20.0),
     "settle_s": (0.0, 5.0), "measure_s": (0.1, 10.0), "gravity": (9.0, 10.5), "mass_scale": (0.5, 2.0),
-    "mass_offset_g": (-200.0, 200.0), "contact_g": (1.0, 500.0), "max_descent_mm": (5.0, 200.0),
-    "descent_speed_mms": (1.0, 50.0), "descent_step_mm": (0.5, 10.0), "bench_hold_s": (0.3, 3.0),
+    "mass_offset_g": (-200.0, 200.0), "contact_g": (1.0, 500.0),
+    "descent_speed_mms": (1.0, 50.0), "bench_hold_s": (0.3, 3.0),
     "bench_avg_ms": (5.0, 500.0), "bench_pause_s": (0.0, 120.0), "bench_open_mm": (1.0, HAND_TRAVEL_MM),
     "contact_pct": (5.0, 90.0), "ssd_min_conf_pct": (0.0, 99.0), "defect_pct": (0.0, 100.0),
     "tare_max_age_min": (0.0, 480.0),
@@ -239,10 +240,7 @@ class Settings:
     # testing bench     (franka_sort.py: --contact-g 40, --max-descent 0.08, --descent-speed 0.01, --descent)
     contact_g: float = 40.0
     contact_pct: float = 35.0          # V17: contact also needs rest load ≤ this % of the part (60 g SSD → 21 g)
-    max_descent_mm: float = 80.0
     descent_speed_mms: float = 10.0
-    descent_method: str = "impedance"  # "impedance" (CartesianImpedance controller) · "steps" (fallback)
-    descent_step_mm: float = 2.0
     bench_hold_s: float = 0.7
     bench_avg_ms: float = 50.0
     bench_pause_s: float = 10.0        # test time on the bench (V6 default 10 s; franka_sort.py: 3 s)
@@ -286,28 +284,17 @@ class Settings:
         """Clamp every numeric value to LIMITS (in place)."""
         defaults = Settings()
         for name, (lo, hi) in LIMITS.items():
-            default = getattr(defaults, name)
-            try:
-                v = min(max(float(getattr(self, name)), lo), hi)
-            except (TypeError, ValueError):
-                v = default
-            setattr(self, name, int(round(v)) if isinstance(default, int) else float(v))
+            v = min(max(float(getattr(self, name)), lo), hi)
+            setattr(self, name, int(round(v)) if isinstance(getattr(defaults, name), int) else float(v))
         return self
 
     @classmethod
     def load(cls, path: Path) -> "Settings":
         s = cls()
-        try:
-            data = json.loads(path.read_text()) if path.exists() else {}
-        except Exception:
-            data = {}
+        data = json.loads(path.read_text()) if path.exists() else {}
         for f in fields(cls):
-            if f.name in data and data[f.name] is not None:
-                default = getattr(s, f.name)
-                try:
-                    setattr(s, f.name, type(default)(data[f.name]))
-                except (TypeError, ValueError):
-                    pass
+            if f.name in data:
+                setattr(s, f.name, type(getattr(s, f.name))(data[f.name]))
         s.settings_version = cls().settings_version
         return s.clamp()
 
@@ -316,91 +303,34 @@ class Settings:
 
 
 # ═══════════════════════════════════════════════════════════════════ 3. kinematics
-# Panda modified DH parameters (a_{i-1}, d_i, alpha_{i-1}) from the Franka docs; used by the controller and the 3D twin.
+# Panda modified DH parameters (a_{i-1}, d_i, alpha_{i-1}) and flange length: geometry of the 3D twin.
+# Poses (Franka Hand TCP in the base frame) come from panda_py.fk.
 DH = [(0.0, 0.333, 0.0), (0.0, 0.0, -math.pi / 2), (0.0, 0.316, math.pi / 2), (0.0825, 0.0, math.pi / 2),
       (-0.0825, 0.384, -math.pi / 2), (0.0, 0.0, math.pi / 2), (0.088, 0.0, math.pi / 2)]
 FLANGE = 0.107
-TCP = 0.1034
-
-
-def _dh(a: float, d: float, alpha: float, theta: float) -> np.ndarray:
-    ca, sa, ct, st = math.cos(alpha), math.sin(alpha), math.cos(theta), math.sin(theta)
-    return np.array([[ct, -st, 0.0, a], [st * ca, ct * ca, -sa, -d * sa], [st * sa, ct * sa, ca, d * ca],
-                     [0.0, 0.0, 0.0, 1.0]])
-
-
-def _rotz(t: float) -> np.ndarray:
-    m = np.eye(4)
-    m[:2, :2] = [[math.cos(t), -math.sin(t)], [math.sin(t), math.cos(t)]]
-    return m
-
-
-def _transz(z: float) -> np.ndarray:
-    m = np.eye(4)
-    m[2, 3] = z
-    return m
-
-
-T_FLANGE_EE = _transz(FLANGE) @ _rotz(-math.pi / 4) @ _transz(TCP)
-
-
-def fk_frames(q) -> Tuple[List[np.ndarray], np.ndarray]:
-    T, frames = np.eye(4), []
-    for (a, d, alpha), th in zip(DH, q):
-        T = T @ _dh(a, d, alpha, float(th))
-        frames.append(T)
-    return frames, T @ T_FLANGE_EE
-
-
-def fk(q) -> np.ndarray:
-    """End-effector pose O_T_EE (Franka Hand TCP) as 4x4 matrix."""
-    return fk_frames(q)[1]
-
-
-def quat_xyzw(R) -> np.ndarray:
-    """Rotation matrix → unit quaternion (x, y, z, w), the order panda-py uses (checked against the robot)."""
-    R = np.asarray(R, dtype=float)[:3, :3]
-    tr = float(np.trace(R))
-    if tr > 0:
-        k = math.sqrt(tr + 1.0) * 2
-        q = [(R[2, 1] - R[1, 2]) / k, (R[0, 2] - R[2, 0]) / k, (R[1, 0] - R[0, 1]) / k, 0.25 * k]
-    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
-        k = math.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2
-        q = [0.25 * k, (R[0, 1] + R[1, 0]) / k, (R[0, 2] + R[2, 0]) / k, (R[2, 1] - R[1, 2]) / k]
-    elif R[1, 1] > R[2, 2]:
-        k = math.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2
-        q = [(R[0, 1] + R[1, 0]) / k, 0.25 * k, (R[1, 2] + R[2, 1]) / k, (R[0, 2] - R[2, 0]) / k]
-    else:
-        k = math.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2
-        q = [(R[0, 2] + R[2, 0]) / k, (R[1, 2] + R[2, 1]) / k, 0.25 * k, (R[1, 0] - R[0, 1]) / k]
-    q = np.asarray(q, dtype=float)
-    return q / np.linalg.norm(q)
 
 
 # ═══════════════════════════════════════════════════════════════════ 4. classification
-# V18: trained classifier, fitted by train_drive_model.py and read once at start from next to this file
-DRIVE_MODEL = json.loads(Path(__file__).resolve().with_name("drive_model.json").read_text(encoding="utf-8"))
-DRIVE_MODEL_NOTE = (f"logistic regression C={DRIVE_MODEL['C']:g}, trained {DRIVE_MODEL['trained'][:10]} on "
-                    f"{DRIVE_MODEL['n']} drives, test accuracy {DRIVE_MODEL['test_accuracy'] * 100:.0f} %")
+# V18: trained classifier — sklearn pipeline (StandardScaler + LogisticRegression) saved by train_drive_model.py with
+# joblib as {"model", "points", "note"} next to this file, read once at start
+DRIVE_MODEL = joblib.load(Path(__file__).resolve().with_name("drive_model.joblib"))
+MODEL = DRIVE_MODEL["model"]
+DRIVE_MODEL_NOTE = DRIVE_MODEL["note"]
 
 
-def model_proba(width_mm: float, mass_g: float) -> Dict[str, float]:
-    """Class probabilities of the trained logistic regression (= sklearn predict_proba). Features: gripper opening
-    (= drive thickness) and ln(weight), standardised like in training."""
-    m = DRIVE_MODEL
-    x = (float(width_mm), math.log(max(float(mass_g), 1.0)))
-    z = [(v - mu) / sd for v, mu, sd in zip(x, m["mean"], m["std"])]
-    logits = [b + c[0] * z[0] + c[1] * z[1] for c, b in zip(m["coef"], m["intercept"])]
-    top = max(logits)
-    e = [math.exp(v - top) for v in logits]
-    return dict(zip(m["classes"], (v / sum(e) for v in e)))
+def model_proba(width_mm: Any, mass_g: Any) -> np.ndarray:
+    """Class probabilities (columns = MODEL.classes_) for one or many parts. Features as in training: gripper
+    opening (= drive thickness) and ln(weight)."""
+    return MODEL.predict_proba(np.column_stack([np.atleast_1d(width_mm),
+                                                np.log(np.clip(np.atleast_1d(mass_g), 1.0, None))]))
 
 
-def classify(mass_g: float, width_mm: float, s: Settings) -> Tuple[str, str, float]:
+def classify(mass_g: float, width_mm: float, s: Settings,
+             p: Optional[Dict[str, float]] = None) -> Tuple[str, str, float]:
     """Decision for a measured part → (class, reason, model probability of that class). V18: trained model; an SSD
     needs ssd_min_conf_pct, otherwise the likelier HDD class wins (HDD → SSD = data-security risk). Then the optional
-    plausibility windows: a part outside the window of its class becomes 'reject'."""
-    p = model_proba(width_mm, mass_g)
+    plausibility windows: a part outside the window of its class becomes 'reject'. p: probabilities if already known."""
+    p = p or dict(zip(MODEL.classes_, model_proba(width_mm, mass_g)[0]))
     cls = max(p, key=p.get)
     guarded = cls == "ssd" and p["ssd"] * 100.0 < s.ssd_min_conf_pct
     if guarded:
@@ -449,17 +379,8 @@ class MotionError(RuntimeError):
     """A motion did not reach its goal (reflex, user stop, collision, ...)."""
 
 
-def _mode_name(mode: Any) -> str:
-    return (getattr(mode, "name", None) or str(mode)).split(".")[-1]
-
-
 def _errs(errors: Any) -> str:
-    try:
-        if errors is None or not bool(errors):
-            return ""
-    except Exception:
-        return ""
-    return repr(errors).strip("[] ").replace('"', "")
+    return repr(errors).strip("[] ").replace('"', "") if errors else ""
 
 
 def _fmt(v: Any, nd: int) -> str:
@@ -477,14 +398,6 @@ def _short(v: Any) -> str:
     return f"{v:g}" if isinstance(v, float) else repr(v)
 
 
-def _pkg_version(name: str) -> str:
-    try:
-        from importlib import metadata
-        return metadata.version(name)
-    except Exception:
-        return "not installed"
-
-
 class _PandaLogHandler(logging.Handler):
     """Routes panda_py's own log messages (logger 'panda') into the dashboard log."""
 
@@ -493,10 +406,7 @@ class _PandaLogHandler(logging.Handler):
         self.ctrl = ctrl
 
     def emit(self, record: logging.LogRecord) -> None:
-        try:
-            msg = record.getMessage()
-        except Exception:
-            msg = str(record.msg)
+        msg = record.getMessage()
         lvl = "error" if record.levelno >= logging.ERROR else "warn" if record.levelno >= logging.WARNING else "debug"
         self.ctrl._log(lvl, f"panda_py: {msg}")
         if "Control loop interrup" in msg:       # panda_py spells it "interruped"
@@ -566,7 +476,7 @@ class Controller:
         self.draft: List[List[float]] = []
         self._backed_up: set = set()
         # telemetry
-        self.tele: Dict[str, Any] = dict(q=Q_READY.copy(), ee=fk(Q_READY)[:3, 3].copy(), f=np.zeros(3), mode="—",
+        self.tele: Dict[str, Any] = dict(q=JOINT_POSITION_START.copy(), ee=fk(JOINT_POSITION_START)[:3, 3].copy(), f=np.zeros(3), mode="—",
                                          errors="", t=0.0, width=0.0, max_width=0.0, grasped=False, temp=None, hz=0.0)
         self.force_hist: deque = deque(maxlen=900)
         self._tele_stop = threading.Event()
@@ -597,40 +507,31 @@ class Controller:
     def _write_logfile(self, line: str) -> None:
         """Session log next to the CSV (like franka_sort.py's logs/sort_<stamp>.log); a new file starts with
         a header (versions, robot, waypoints, all settings) so every session can be reproduced later."""
-        try:
-            path = self.log_file()
-            if self._logfile is None or self._logfile_path != path:
-                if self._logfile is not None:
-                    self._logfile.close()
-                path.parent.mkdir(parents=True, exist_ok=True)
-                new = not path.exists() or path.stat().st_size == 0
-                self._logfile, self._logfile_path = open(path, "a", encoding="utf-8"), path
-                if new:
-                    self._logfile.write("\n".join(self._session_header()) + "\n")
-            self._logfile.write(line + "\n")
-            self._logfile.flush()
-        except Exception:
-            self._logfile = None
+        path = self.log_file()
+        if self._logfile is None or self._logfile_path != path:
+            if self._logfile is not None:
+                self._logfile.close()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            new = not path.exists() or path.stat().st_size == 0
+            self._logfile, self._logfile_path = open(path, "a", encoding="utf-8"), path
+            if new:
+                self._logfile.write("\n".join(self._session_header()) + "\n")
+        self._logfile.write(line + "\n")
+        self._logfile.flush()
 
     def _session_header(self) -> List[str]:
-        out = [f"# {APP_TITLE} — session {self.session}"]
-        try:
-            out.append(f"# started {datetime.now():%Y-%m-%d %H:%M:%S} on {socket.gethostname()} · Python "
-                       f"{platform.python_version()} · numpy {np.__version__} · nicegui {_pkg_version('nicegui')} · "
-                       f"panda-python {_pkg_version('panda-python')}")
-            out.append(f"# robot {self.s.robot_ip} · trial tag '{self.s.trial_tag}' · log folder "
-                       f"{Path(self.s.results_dir).expanduser().resolve()}")
-            wp = getattr(self, "waypoints", None) or {}
-            out.append(f"# waypoints {self.wp_path().resolve()}: "
-                       + (", ".join(f"{k} {len(v)} pts" for k, v in wp.items() if v) or "none"))
-            out.append("# settings " + json.dumps(asdict(self.s), sort_keys=True))
-            out.append(f"# model drive_model.json: {DRIVE_MODEL_NOTE}")
-            out.append(f"# files of this session: dashboard_{self.session}.csv (one row per part), _steps.csv "
-                       "(every step), _weighing.csv (raw tare/load forces), _bench.csv (descent curve), "
-                       "_summary.md (KPIs)")
-        except Exception as e:
-            out.append(f"# header incomplete: {type(e).__name__}: {e}")
-        return out
+        return [f"# {APP_TITLE} — session {self.session}",
+                f"# started {datetime.now():%Y-%m-%d %H:%M:%S} on {socket.gethostname()} · Python "
+                f"{platform.python_version()} · numpy {np.__version__} · nicegui {metadata.version('nicegui')} · "
+                f"panda-python {metadata.version('panda-python')} · scikit-learn {metadata.version('scikit-learn')}",
+                f"# robot {self.s.robot_ip} · trial tag '{self.s.trial_tag}' · log folder "
+                f"{Path(self.s.results_dir).expanduser().resolve()}",
+                f"# waypoints {self.wp_path().resolve()}: "
+                + (", ".join(f"{k} {len(v)} pts" for k, v in self.waypoints.items() if v) or "none"),
+                "# settings " + json.dumps(asdict(self.s), sort_keys=True),
+                f"# model drive_model.joblib: {DRIVE_MODEL_NOTE}",
+                f"# files of this session: dashboard_{self.session}.csv (one row per part), _steps.csv "
+                "(every step), _weighing.csv (raw tare/load forces), _bench.csv (descent curve), _summary.md (KPIs)"]
 
     def count(self, key: str) -> None:
         self.counters[key] = self.counters.get(key, 0) + 1
@@ -903,12 +804,6 @@ class Controller:
         return self.run_job("connect", self._connect)
 
     def _connect(self) -> None:
-        try:
-            import panda_py
-            from panda_py import libfranka
-        except ImportError as e:
-            raise RuntimeError("panda_py is not installed in this Python — activate the venv from install_franka.sh "
-                               "(source ~/franka_venv/bin/activate)") from e
         host = self.s.robot_ip.strip()
         self.info(f"Connecting to robot {host} (FCI) …")
         lg = logging.getLogger("panda")
@@ -922,7 +817,7 @@ class Controller:
         except Exception as e:
             raise RuntimeError(f"{e} — check IP/cable, that FCI is activated in Desk and the robot is unlocked") from e
         self.panda, self.gripper, self.robot = panda, gripper, panda.get_robot()
-        self.lib_info = f"panda_py {getattr(panda_py, '__version__', '?')}"
+        self.lib_info = f"panda_py {metadata.version('panda-python')}"
         self.connected, self.teaching = True, False
         self.tare = None                               # new connection → tare again before the first part
         self.load_waypoints(quiet=True)
@@ -931,8 +826,7 @@ class Controller:
         gs = self._gripper_state()
         if float(gs.max_width) < 0.01:
             self.warn("Gripper reports max width 0 — run 'Home gripper' before sorting")
-        with contextlib.suppress(Exception):
-            self._ingest_state(self._fresh_state())
+        self._ingest_state(self._fresh_state())
         self._start_telemetry()
         self.count("connect")
         self.debug(f"robot at connect: mode {self.tele['mode']}, errors '{self.tele['errors']}', "
@@ -974,17 +868,13 @@ class Controller:
         last = None
         while True:
             time.sleep(1.0)
-            try:
-                d = asdict(self.s)
-                if d != last:
-                    if last is not None:
-                        self.s.save(self.settings_path)
-                        changes = [f"{k} {_short(last.get(k))} → {_short(v)}" for k, v in d.items()
-                                   if last.get(k) != v]
-                        self.debug("settings changed: " + ", ".join(changes))
-                    last = d
-            except Exception:
-                pass
+            d = asdict(self.s)
+            if d != last:
+                if last is not None:
+                    self.s.save(self.settings_path)
+                    changes = [f"{k} {_short(last.get(k))} → {_short(v)}" for k, v in d.items() if last.get(k) != v]
+                    self.debug("settings changed: " + ", ".join(changes))
+                last = d
 
     def reset_settings(self) -> None:
         keep = ("robot_ip", "dark", "waypoints_file", "results_dir", "trial_tag", "settings_version")
@@ -1040,16 +930,11 @@ class Controller:
 
     def _after_motion(self, ok: Any, label: str, q_goal=None, p_goal=None) -> None:
         """panda_py returns False instead of raising when a motion fails - check it (franka_sort.py does not)."""
-        try:
-            st = self._fresh_state()
-            self._ingest_state(st)
-        except Exception as e:
-            if ok is False:
-                raise MotionError(f"{label}: motion failed and the robot state could not be read ({e})") from e
-            return
+        st = self._fresh_state()
+        self._ingest_state(st)
         if ok is not False:
             return
-        mode = _mode_name(st.robot_mode)
+        mode = st.robot_mode.name
         errs = _errs(st.current_errors) or _errs(st.last_motion_errors)
         if mode in ("kReflex", "kUserStopped", "kOther") or _errs(st.current_errors):
             raise MotionError(f"{label}: motion aborted — robot mode {NICE_MODE.get(mode, mode)}"
@@ -1080,8 +965,7 @@ class Controller:
         self._check_abort()
         if ok is False:
             self.warn(f"gripper.move({width * 1000:.1f} mm) returned False")
-        with contextlib.suppress(Exception):
-            self._gripper_state()
+        self._gripper_state()
         return ok
 
     def _grasp(self, s: Settings, max_w: float) -> bool:
@@ -1092,9 +976,6 @@ class Controller:
         try:
             ok = self.gripper.grasp(s.grasp_width_mm / 1000.0, float(s.grasp_speed), float(s.grasp_force_n),
                                     s.eps_inner_mm / 1000.0, eps_out)
-        except Exception as e:
-            self.warn(f"gripper.grasp raised {type(e).__name__}: {e}")
-            ok = False
         finally:
             self.gripper_busy = False
         self.debug(f"gripper grasp: width {s.grasp_width_mm:g} mm, {s.grasp_speed_mms:g} mm/s, "
@@ -1179,10 +1060,9 @@ class Controller:
         to_weigh starts there (path links); the empty arm always takes to_holder. Invalid when to_holder or the
         lift height change."""
         r = self.lift_ref
-        if r is None:
-            with contextlib.suppress(Exception):
-                d = json.loads(self._lift_file().read_text())
-                r = self.lift_ref = {k: np.asarray(v, dtype=float) if isinstance(v, list) else v for k, v in d.items()}
+        if r is None and self._lift_file().exists():
+            d = json.loads(self._lift_file().read_text())
+            r = self.lift_ref = {k: np.asarray(v, dtype=float) if isinstance(v, list) else v for k, v in d.items()}
         if r is None:
             return None
         if float(np.max(np.abs(np.asarray(r["grasp_q"]) - q_grasp))) > 1e-3 or abs(float(r["lift_mm"]) - s.lift_mm) > 0.5:
@@ -1196,11 +1076,8 @@ class Controller:
         self.lift_ref = dict(q_up=np.asarray(q_up, dtype=float), p0=np.asarray(p0, dtype=float),
                              o0=np.asarray(o0, dtype=float), grasp_q=np.asarray(q_grasp, dtype=float),
                              lift_mm=float(s.lift_mm))
-        try:
-            self._lift_file().write_text(json.dumps({k: (v.tolist() if isinstance(v, np.ndarray) else v)
-                                                     for k, v in self.lift_ref.items()}, indent=1))
-        except Exception as e:
-            self.warn(f"Could not save the lift pose: {e}")
+        self._lift_file().write_text(json.dumps({k: (v.tolist() if isinstance(v, np.ndarray) else v)
+                                                 for k, v in self.lift_ref.items()}, indent=1))
         self.debug("  lift pose above the holder stored (to check that to_weigh starts there)")
 
     def _tare_for(self, q_weigh: np.ndarray, s: Settings) -> Optional[Dict[str, Any]]:
@@ -1407,10 +1284,7 @@ class Controller:
             self._set_teaching(True)
 
     def _drive_home(self, speed: Optional[float] = None) -> None:
-        try:
-            q = np.asarray(self._fresh_state().q, dtype=float)
-        except Exception:
-            q = np.asarray(self.tele["q"], dtype=float)
+        q = np.asarray(self._fresh_state().q, dtype=float)
         route, how = self._route_home(q)
         if not route:
             self.info(f"Go to start: {how}")
@@ -1442,8 +1316,7 @@ class Controller:
         self.count("recover")
         with self.hw_lock:
             self.panda.recover()
-        with contextlib.suppress(Exception):
-            self._ingest_state(self._fresh_state())
+        self._ingest_state(self._fresh_state())
         self.ok(f"Error recovery done — robot mode {NICE_MODE.get(self.tele['mode'], self.tele['mode'])}")
 
     # ------------------------------------------------------------ teach-in
@@ -1455,10 +1328,7 @@ class Controller:
 
     def _set_teaching(self, on: bool) -> None:
         if on:                                   # V10: the robot rejects teaching mode while the user stop is pressed
-            try:
-                mode = _mode_name(self._fresh_state().robot_mode)
-            except Exception:
-                mode = ""
+            mode = self._fresh_state().robot_mode.name
             if mode == "kUserStopped":
                 raise RuntimeError("the user stop is pressed (lights white) — release it (lights blue) for teaching "
                                    "mode, or switch on 'Guide with the wrist buttons'")
@@ -1472,9 +1342,8 @@ class Controller:
         if on:
             time.sleep(0.3)                      # a rejected controller reports within ~50 ms (panda_py log)
             if self._loop_err_t > t0:
-                with contextlib.suppress(Exception):
-                    with self.hw_lock:
-                        self.panda.teaching_mode(False)
+                with self.hw_lock:
+                    self.panda.teaching_mode(False)
                 self.teaching = False
                 raise RuntimeError("the robot rejected teaching mode (see the panda_py error above) — is the user "
                                    "stop released (lights blue)? Otherwise press 'Recover errors' and try again")
@@ -1486,12 +1355,8 @@ class Controller:
             self.info("Teaching mode OFF — arm holds its position. Clear the workspace, then 'Go to start'.")
 
     def _read_q(self) -> np.ndarray:
-        if not self.teaching:                      # franka_sort.current_q(): read_once() when no controller runs
-            try:
-                return np.asarray(self._fresh_state().q, dtype=float)
-            except Exception:
-                pass
-        return np.asarray(self.panda.get_state().q, dtype=float)
+        """franka_sort.current_q(): read_once() when no controller runs, else the controller's state."""
+        return np.asarray((self.panda.get_state() if self.teaching else self._fresh_state()).q, dtype=float)
 
     def teach_add(self) -> None:
         if not self.connected:
@@ -1738,10 +1603,7 @@ class Controller:
                 """Straight up out of the holder, then the taught to_weigh path. Returns the joints above the holder
                 (end point of the way back) and remembers them for the next part."""
                 self._move_pose(p_up, o0, s.speed, f"lift ({what})")
-                try:
-                    q_up = np.asarray(self._fresh_state().q, dtype=float).copy()
-                except Exception:
-                    q_up = np.asarray(self.tele["q"], dtype=float).copy()
+                q_up = np.asarray(self._fresh_state().q, dtype=float).copy()
                 self._store_lift_ref(q_up, p0, o0, to_holder[-1], s)
                 self._move_joints(to_weigh, s.speed, f"to_weigh ({what})")
                 return q_up
@@ -1761,8 +1623,8 @@ class Controller:
                     with self._step("bench_out", f"Exit path {PATH_LABEL[out_name]}"):   # no part → no force check
                         out_wps = wp[out_name]
                         pa, oa = self._pose()           # V18: same way as with a part: straight down to the seat
-                        seat_z = self._bench_seat_z(out_name, out_wps[0], pa, oa)
-                        if seat_z is not None and pa[2] - seat_z > 0.001:
+                        seat_z = self._bench_seat_z(out_name, out_wps[0], pa)
+                        if pa[2] - seat_z > 0.001:
                             self._move_pose(np.array([pa[0], pa[1], seat_z]), oa, min(float(s.speed), 0.1),
                                             "straight down to the seat (dry run)")
                         self._move_joints(out_wps, s.speed, f"{out_name} (dry run)")
@@ -1797,8 +1659,7 @@ class Controller:
             with self._step("weigh"):
                 f_loaded, sd_loaded = self._mean_force("load", s)
             d = f_loaded - f_empty
-            g = max(float(s.gravity), 1e-6)
-            raw_kg = (abs(float(d[2])) if s.force_mode == "z" else float(np.linalg.norm(d))) / g
+            raw_kg = (abs(float(d[2])) if s.force_mode == "z" else float(np.linalg.norm(d))) / s.gravity
             mass_g = raw_kg * 1000.0 * float(s.mass_scale) + float(s.mass_offset_g)
             if mass_g > MAX_PART_G:
                 self.warn(f"#{n} measured {mass_g:.0f} g — more than the {MAX_PART_G:.0f} g a Panda can carry with the "
@@ -1914,32 +1775,16 @@ class Controller:
             self.info(f"--- Part #{n} {res['status']} in {res['cycle_s']:.1f} s")
 
     # ------------------------------------------------------------ testing bench (franka_sort.rest_on_bench)
-    def _controllers(self) -> Any:
-        from panda_py import controllers           # ImportError → step mode
-        return controllers
-
     def _skip_step(self, key: str) -> None:
         for st in self.steps:
             if st["key"] == key and st["status"] == "pending":
                 st["status"] = "skipped"
         self.ver["steps"] += 1
 
-    def _bench_seat_z(self, out_name: str, q_seat: np.ndarray, p0: np.ndarray, o0: np.ndarray) -> Optional[float]:
+    def _bench_seat_z(self, out_name: str, q_seat: np.ndarray, p0: np.ndarray) -> float:
         """V18: height of the seat (first point of the exit path, taught with the part in the bench). The arm only
-        moves straight down/up at the bench — never sideways (V17's line-up move hit the 2.5″ bench).
-        None (= old behaviour: force-guarded descent up to max_descent_mm) if own kinematics do not match."""
-        try:
-            T_now = fk(np.asarray(self._fresh_state().q, dtype=float))
-            dp = float(np.linalg.norm(T_now[:3, 3] - p0)) * 1000.0
-            dq = abs(float(np.dot(quat_xyzw(T_now), np.asarray(o0, dtype=float) / np.linalg.norm(o0))))
-            z = float(fk(np.asarray(q_seat, dtype=float))[2, 3])
-        except Exception as e:
-            self.warn(f"  seat height not usable ({type(e).__name__}: {e}) — lowering up to the max descent")
-            return None
-        if dp > 5.0 or dq < 0.999:
-            self.warn(f"  own kinematics do not match the robot pose (Δ {dp:.1f} mm, quaternion · {dq:.4f}) — check the "
-                      "Hand / end-effector settings in Desk. Lowering up to the max descent, re-grasp in place")
-            return None
+        moves straight down/up at the bench — never sideways (V17's line-up move hit the 2.5″ bench)."""
+        z = float(fk(np.asarray(q_seat, dtype=float))[2, 3])
         self.info(f"  seat (first point of {out_name}) {(p0[2] - z) * 1000:.0f} mm straight below")
         return z
 
@@ -1950,29 +1795,17 @@ class Controller:
         (or until Continue), straight down to the seat with open jaws, grasp there, then the exit path.
         Returns contact, descent [m], rest load [kg], part held again, finger width after re-grasp [mm]."""
         p0, o0 = self._pose()                       # approach pose above the bench (end of to_bench*)
-        seat_z = self._bench_seat_z(out_name, out_wps[0], p0, o0)
-        slow = min(float(s.speed), 0.1)
-        thr_g = min(float(s.contact_g), float(s.contact_pct) / 100.0 * mass_kg * 1000.0)
-        at_seat = False
+        seat_z = self._bench_seat_z(out_name, out_wps[0], p0)
+        slow = min(s.speed, 0.1)
+        thr_g = min(s.contact_g, s.contact_pct / 100.0 * mass_kg * 1000.0)
         with self._step("bench", "Lower onto bench"):
-            if seat_z is not None:
-                max_dz = max(float(p0[2] - seat_z), 0.0)
-                goal = f" or at the seat {max_dz * 1000:.0f} mm lower"
-            else:
-                max_dz = max(float(s.max_descent_mm), 1.0) / 1000.0
-                goal = f", max {max_dz * 1000:.0f} mm"
-            self.info(f"  lowering onto bench (stop at ≤ {thr_g:.0f} g rest load{goal})")
+            max_dz = max(float(p0[2] - seat_z), 0.0)
+            self.info(f"  lowering onto bench (stop at ≤ {thr_g:.0f} g rest load or at the seat {max_dz * 1000:.0f} mm "
+                      "lower)")
             self.bench.update(samples=[], phase="descent", limit=thr_g)
             self.ver["bench"] += 1
-            if s.descent_method == "impedance":
-                try:
-                    contact, descent, rest, reached = self._descend_impedance(s, mass_kg, d_f, p0, o0, max_dz, thr_g)
-                except (ImportError, AttributeError) as e:
-                    self.warn(f"  impedance descent not available ({e}) — using step mode")
-                    contact, descent, rest, reached = self._descend_steps(s, mass_kg, d_f, p0, o0, max_dz, thr_g)
-            else:
-                contact, descent, rest, reached = self._descend_steps(s, mass_kg, d_f, p0, o0, max_dz, thr_g)
-            at_seat = seat_z is not None and reached and not contact
+            contact, descent, rest, reached = self._descend_impedance(s, mass_kg, d_f, p0, o0, max_dz, thr_g)
+            at_seat = reached and not contact
             self.bench.update(contact=contact, descent=descent, rest=rest, phase="resting")
             self.ver["bench"] += 1
             if contact:
@@ -2004,14 +1837,12 @@ class Controller:
                 self._sleep(float(s.bench_pause_s))
         held, w2 = True, None
         exit_wps = list(out_wps)
-        with self._step("regrasp", ("Down to the seat, re-grasp" if seat_z is not None else "Re-grasp")
-                        if release else "Hold"):
+        with self._step("regrasp", "Down to the seat, re-grasp" if release else "Hold"):
             if release:
-                if seat_z is not None:                  # the part sinks into the bench when released →
-                    p_now, _ = self._pose()             # straight down to where it sits, jaws open
-                    if p_now[2] - seat_z > 0.001:
-                        self._move_pose(np.array([p0[0], p0[1], seat_z]), o0, slow,
-                                        f"straight down {(p_now[2] - seat_z) * 1000:.0f} mm to the seat, jaws open")
+                p_now, _ = self._pose()                 # the part sinks into the bench when released →
+                if p_now[2] - seat_z > 0.001:           # straight down to where it sits, jaws open
+                    self._move_pose(np.array([p0[0], p0[1], seat_z]), o0, slow,
+                                    f"straight down {(p_now[2] - seat_z) * 1000:.0f} mm to the seat, jaws open")
                 ok = self._grasp(s, max_w)
                 gs = self._gripper_state()
                 w2 = float(gs.width) * 1000.0
@@ -2031,12 +1862,9 @@ class Controller:
         """franka_sort.descend_impedance(): a CartesianImpedance controller lowers the part at the descent
         speed until the load still hanging in the gripper is ≤ thr_g, or the setpoint has been at max_dz
         (the seat) for 0.5 s. Returns contact, descent [m], rest load [kg], seat reached."""
-        ctrl = self._controllers().CartesianImpedance()
-        g = max(float(s.gravity), 1e-6)
-        v = max(float(s.descent_speed_mms), 0.5) / 1000.0
-        max_dz = max(float(max_dz), 0.001)
-        t_hold = max(float(s.bench_hold_s), 0.3)
-        buf: deque = deque(maxlen=max(1, int(round(float(s.bench_avg_ms)))))   # ~1 sample per ms
+        ctrl = controllers.CartesianImpedance()
+        g, v, t_hold = s.gravity, s.descent_speed_mms / 1000.0, s.bench_hold_s
+        buf: deque = deque(maxlen=int(round(s.bench_avg_ms)))   # ~1 sample per ms
         hold: List[np.ndarray] = []
         f_hold: Optional[np.ndarray] = None
         contact, reached, rest, last_push = False, False, mass_kg, -1.0
@@ -2064,7 +1892,7 @@ class Controller:
                                 hold.append(f)
                             continue
                         if f_hold is None:
-                            f_hold = np.mean(hold, axis=0) if hold else f
+                            f_hold = np.mean(hold, axis=0)
                         dz = min(v * (t - t_hold), max_dz)
                         ctrl.set_control(p0 - np.array([0.0, 0.0, dz]), o0)
                         buf.append(f)
@@ -2090,40 +1918,6 @@ class Controller:
             descent = float(p0[2] - np.asarray(panda.get_position(), dtype=float)[2])
         self._check_abort()
         return contact, descent, rest, reached
-
-    def _descend_steps(self, s: Settings, mass_kg: float, d_f: np.ndarray, p0: np.ndarray,
-                       o0: np.ndarray, max_dz: float, thr_g: float) -> Tuple[bool, float, float, bool]:
-        """franka_sort.descend_steps(): fallback without controller — small move_to_pose steps + force check."""
-        g = max(float(s.gravity), 1e-6)
-        step = max(float(s.descent_step_mm), 0.5) / 1000.0
-        max_dz = max(float(max_dz), 0.001)
-        f_hold, _ = self._avg_force(0.5, 0.3)
-        contact, rest, dz = False, mass_kg, 0.0
-        while dz < max_dz:
-            dz = min(dz + step, max_dz)
-            self._move_pose(p0 - np.array([0.0, 0.0, dz]), o0, s.speed, "lowering onto the bench")
-            f_now, _ = self._avg_force(0.1, 0.1)
-            rest = rest_load(f_now, f_hold, d_f, mass_kg, g)
-            self.bench["samples"].append((dz * 1000.0, rest * 1000.0))
-            self.ver["bench"] += 1
-            if rest <= thr_g / 1000.0:
-                contact = True
-                break
-        p_now, _ = self._pose()
-        return contact, float(p0[2] - p_now[2]), rest, (not contact) and dz >= max_dz
-
-    def _avg_force(self, duration: float, settle: float) -> Tuple[np.ndarray, float]:
-        """mean_force() without touching the weighing chart (bench step mode)."""
-        self._sleep(settle)
-        samples: List[np.ndarray] = []
-        t_end = time.time() + max(0.02, duration)
-        with self.hw_lock:
-            while time.time() < t_end or not samples:
-                samples.append(np.asarray(self.robot.read_once().O_F_ext_hat_K[:3], dtype=float))
-                if self.abort.is_set():
-                    raise Abort()
-        arr = np.asarray(samples)
-        return arr.mean(axis=0), float(arr.std(axis=0).max())
 
     def _wait_bench(self) -> None:
         self._bench_go.clear()
@@ -2433,7 +2227,7 @@ class Controller:
         T = np.asarray(st.O_T_EE, dtype=float).reshape(4, 4, order="F")
         f = np.asarray(st.O_F_ext_hat_K, dtype=float)[:3]
         now = time.time()
-        self.tele.update(q=q, ee=T[:3, 3].copy(), f=f, mode=_mode_name(st.robot_mode),
+        self.tele.update(q=q, ee=T[:3, 3].copy(), f=f, mode=st.robot_mode.name,
                          errors=_errs(st.current_errors), t=now)
         if hist:
             self.force_hist.append((now, float(f[0]), float(f[1]), float(f[2])))
@@ -2441,7 +2235,7 @@ class Controller:
 
     def _ingest_gripper(self, gs: Any) -> None:
         self.tele.update(width=float(gs.width), max_width=float(gs.max_width), grasped=bool(gs.is_grasped),
-                         temp=getattr(gs, "temperature", None))
+                         temp=gs.temperature)
         if float(gs.max_width) > 0.01:
             self.max_width = float(gs.max_width)
 
@@ -2712,15 +2506,9 @@ class RobotPanels:
                 self._num("… and ≤ % of the part", "contact_pct", 5, 90, 1, "%",
                           "V17: light parts need a lower threshold — the smaller value counts "
                           "(60 g SSD at 35 % → 21 g; a 40 g threshold fired after 0.1 mm)")
-                self._num("Max descent", "max_descent_mm", 5, 200, 1, "mm",
-                          "Max lowering below the approach pose (franka_sort.py --max-descent 0.08 m)")
                 self._num("Descent speed", "descent_speed_mms", 1, 50, 1, "mm/s",
-                          "Lowering speed (franka_sort.py --descent-speed 0.01 m/s)")
-                ui.toggle({"impedance": "Impedance", "steps": "Steps"}).props("no-caps unelevated spread dense") \
-                    .classes("full seg").bind_value(c.s, "descent_method") \
-                    .tooltip("Impedance = CartesianImpedance controller (smooth). Steps = small move_to_pose steps "
-                             "with a force check (slower fallback). franka_sort.py --descent")
-                self._num("Step size", "descent_step_mm", 0.5, 10, 0.5, "mm", "Step mode only (franka_sort.py: 2 mm)")
+                          "Lowering speed of the CartesianImpedance controller down to the seat (franka_sort.py "
+                          "--descent-speed 0.01 m/s)")
                 self._num("Hold reference", "bench_hold_s", 0.3, 3, 0.1, "s",
                           "Hold still before lowering to record the loaded reference force (franka_sort.py: 0.7 s)")
                 self._num("Force averaging", "bench_avg_ms", 5, 500, 5, "ms",
@@ -2910,8 +2698,7 @@ class RobotPanels:
 
     def _toggle_theme(self) -> None:
         self.c.s.dark = not self.c.s.dark
-        with contextlib.suppress(Exception):
-            self.c.s.save(self.c.settings_path)
+        self.c.s.save(self.c.settings_path)
         ui.navigate.reload()
 
     def _connect_toggle(self) -> None:

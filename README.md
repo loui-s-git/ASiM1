@@ -1,10 +1,10 @@
 # Franka Dashboard V18
 
-Stand: 23.11.2026 · gilt für `Franka_Dashboard_V18.py`, `Franka_Robot_V18.py`, `drive_model.json` und `waypoints.json`
+Stand: 24.11.2026 · gilt für `Franka_Dashboard_V18.py`, `Franka_Robot_V18.py`, `drive_model.joblib` und `waypoints.json`
 
 ## Terminal-Befehle auf dem Linux-Rechner
 
-Alle Befehle laufen im Terminal des Roboter-PCs (Ubuntu). Leg `Franka_Dashboard_V18.py`, `Franka_Robot_V18.py` und `drive_model.json` zusammen in denselben Ordner, hier `~/Downloads`. Gestartet wird nur `Franka_Dashboard_V18.py`, es lädt die beiden anderen Dateien selbst.
+Alle Befehle laufen im Terminal des Roboter-PCs (Ubuntu). Leg `Franka_Dashboard_V18.py`, `Franka_Robot_V18.py`, `drive_model.joblib`, `train_drive_model.py` und `drive_dimensions.csv` zusammen in denselben Ordner, hier `~/Downloads`. Gestartet wird nur `Franka_Dashboard_V18.py`, es lädt `Franka_Robot_V18.py` und das Modell selbst.
 
 Starte das Dashboard immer aus diesem Ordner. `waypoints.json`, `dashboard_settings.json` und der Ordner `logs/` liegen relativ zum aktuellen Ordner.
 
@@ -15,7 +15,7 @@ Vor dem Start: Roboter in Desk entsperren und FCI aktivieren.
 ```bash
 source ~/franka_venv/bin/activate      # venv aus install_franka.sh (numpy, panda-python)
 cd ~/Downloads
-pip install -r requirements.txt        # installiert auch nicegui, das install_franka.sh nicht mitbringt
+pip install -r requirements.txt        # nicegui, scikit-learn, scipy, pandas: bringt install_franka.sh nicht mit
 ```
 
 ### Dashboard starten
@@ -33,18 +33,17 @@ python3 Franka_Dashboard_V18.py                # öffnet http://localhost:8080 i
 
 ### Klassifikationsmodell trainieren
 
-Das Modell lernt aus `drive_dimensions.csv`, welche Kombination aus Dicke (Fingeröffnung) und Gewicht zu SSD, HDD 2.5″ oder HDD 3.5″ gehört. Die CSV liest pandas ein (`read_csv`), trainiert wird mit scikit-learn: Train/Test-Split 75/25, logistische Regression, C per Kreuzvalidierung auf dem Trainingsteil. Das Skript gibt die Testgenauigkeit und die Confusion Matrix aus und schreibt `drive_model.json`. Das Dashboard selbst braucht weder pandas noch scikit-learn, es liest nur `drive_model.json`. Installier beides deshalb in einem eigenen venv, dann bleibt das Roboter-venv unverändert.
+Das Modell lernt aus `drive_dimensions.csv`, welche Kombination aus Dicke (Fingeröffnung) und Gewicht zu SSD, HDD 2.5″ oder HDD 3.5″ gehört. Die CSV liest pandas ein (`read_csv`), trainiert wird mit scikit-learn: Train/Test-Split 75/25, logistische Regression, C per Kreuzvalidierung auf dem Trainingsteil. Das Skript gibt die Testgenauigkeit und die Confusion Matrix aus und speichert die fertige sklearn-Pipeline als `drive_model.joblib`. Das Dashboard lädt sie und rechnet mit `predict_proba`.
+
+Trainier auf dem Roboter-PC im selben venv wie das Dashboard. Die gespeicherte Pipeline lädt nur sicher mit derselben scikit-learn-Version, deshalb ist sie in `requirements.txt` festgelegt. Nach `pip install -r requirements.txt` also einmal neu trainieren.
 
 ```bash
-python3 -m venv ~/train_venv                   # einmalig
-source ~/train_venv/bin/activate
-pip install -r requirements-train.txt          # einmalig: pandas, scikit-learn, numpy
+source ~/franka_venv/bin/activate
 cd ~/Downloads
-python3 train_drive_model.py                   # drive_dimensions.csv → drive_model.json
-deactivate
+python3 train_drive_model.py                   # drive_dimensions.csv → drive_model.joblib
 ```
 
-Nach dem Training das Dashboard neu starten, es liest `drive_model.json` nur beim Start. Im Bereich „Classification“ schaltest du zwischen „Trained model“ und „Thresholds“ um.
+Nach dem Training das Dashboard neu starten, es lädt `drive_model.joblib` nur beim Start.
 
 ## Teach-in-Ablauf
 

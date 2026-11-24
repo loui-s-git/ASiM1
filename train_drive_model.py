@@ -1,15 +1,15 @@
-"""train_drive_model.py - trains the drive classifier of the Franka dashboard and writes drive_model.json.
+"""train_drive_model.py - trains the drive classifier of the Franka dashboard and writes drive_model.joblib.
 
-    pip install -r requirements-train.txt
     python3 train_drive_model.py
 
 Features are what the robot can measure: gripper opening (= drive thickness, CSV height_mm) and ln(weight).
-The dashboard reads drive_model.json and computes the probabilities itself, so it does not need pandas or sklearn.
+The fitted sklearn pipeline is saved with joblib; the dashboard loads it and calls predict_proba. Train with the same
+scikit-learn version the dashboard runs with (requirements.txt).
 """
-import json
 from datetime import datetime
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
@@ -19,7 +19,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 HERE = Path(__file__).resolve().parent
-CLASSES = ["ssd", "hdd25", "hdd35"]                    # order the dashboard expects
+CLASSES = ["ssd", "hdd25", "hdd35"]                    # row / column order of the confusion matrix
 TYPE_TO_CLASS = {"SSD 2.5": "ssd", "HDD 2.5": "hdd25", "HDD 3.5": "hdd35"}
 
 df = pd.read_csv(HERE / "drive_dimensions.csv", usecols=["type", "height_mm", "weight_g"])
@@ -38,11 +38,8 @@ print(f"test accuracy {test_accuracy:.1%} on {len(y_test)} drives (C = {C:g})")
 print(pd.DataFrame(confusion_matrix(y_test, pred, labels=CLASSES), index=CLASSES, columns=CLASSES))
 
 model = make_pipeline(StandardScaler(), LogisticRegression(C=C, max_iter=10000)).fit(X, y)   # deployed: all drives
-scaler, clf = model[0], model[-1]
-order = [list(clf.classes_).index(c) for c in CLASSES]
-out = dict(type="logreg", classes=CLASSES, C=C, mean=scaler.mean_.tolist(), std=scaler.scale_.tolist(),
-           coef=clf.coef_[order].tolist(), intercept=clf.intercept_[order].tolist(),
-           test_accuracy=float(test_accuracy), n=len(df), trained=datetime.now().isoformat(timespec="seconds"),
-           points=[[float(w), float(g), c] for w, g, c in zip(df["height_mm"], df["weight_g"], y)])
-(HERE / "drive_model.json").write_text(json.dumps(out, indent=1))
-print(f"written {HERE / 'drive_model.json'}")
+joblib.dump(dict(model=model,
+                 points=[[float(w), float(g), c] for w, g, c in zip(df["height_mm"], df["weight_g"], y)],
+                 note=f"logistic regression C={C:g}, trained {datetime.now():%Y-%m-%d} on {len(df)} drives, "
+                      f"test accuracy {test_accuracy:.0%}"), HERE / "drive_model.joblib")
+print(f"written {HERE / 'drive_model.joblib'}")

@@ -41,12 +41,15 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
-
 from nicegui import app, ui
+from panda_py import fk
+from panda_py.constants import JOINT_LIMITS_LOWER, JOINT_LIMITS_UPPER
+from scipy.spatial.transform import Rotation
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, recall_score
 
 from Franka_Robot_V18 import (  # sorting and robot setup (second file of this dashboard)
-    ALL_PATHS, APP_TITLE, card, classify, Controller, DH, DRIVE_MODEL, DRIVE_MODEL_NOTE, EMPTY, EXPECTED, fk, FLANGE,
-    HOME_CLASS, LABEL, MEASURED, PATH_CLASS, PATH_LABEL, PRED_COLS, Q_LOWER, Q_UPPER, RobotPanels,
+    ALL_PATHS, APP_TITLE, card, classify, Controller, DH, DRIVE_MODEL, DRIVE_MODEL_NOTE, EMPTY, EXPECTED, FLANGE,
+    HOME_CLASS, LABEL, MEASURED, MODEL, model_proba, PATH_CLASS, PATH_LABEL, PRED_COLS, RobotPanels,
     Settings, SETTINGS_FILE, SORTED, STATUS, STATUS_TEXT, STEP_SETS, TRUTH_ROWS,
 )
 
@@ -71,33 +74,24 @@ _REGION_CACHE: Dict[Tuple, List[List[Any]]] = {}   # V18: model decision regions
 
 # ═══════════════════════════════════════════════════════════════════ 2. evaluation (metrics, session summary)
 def compute_metrics(results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Confusion matrix (actual x decision), accuracy, per-class / macro F1 over labelled cycles."""
-    cm = {t: {p: 0 for p in PRED_COLS} for t in TRUTH_ROWS}
-    n = correct = 0
-    for r in results:
-        t = r.get("truth")
-        if r.get("mode") == "dry" or t not in cm:
-            continue
-        if r["status"] in MEASURED and r.get("pred") in PRED_COLS:
-            p = r["pred"]
-        elif r["status"] == EMPTY:
-            p = "none"
-        else:
-            continue
-        cm[t][p] += 1
-        n += 1
-        correct += int(EXPECTED[t] == p)
-    f1: Dict[str, Optional[float]] = {}
-    for c in ["ssd", "hdd25", "hdd35", "reject"]:
-        t = "other" if c == "reject" else c
-        tp = cm[t][c]
-        fp = sum(cm[x][c] for x in TRUTH_ROWS if x != t)
-        fn = sum(cm[t][p] for p in PRED_COLS if p != c)
-        f1[c] = 2 * tp / (2 * tp + fp + fn) if (2 * tp + fp + fn) else None
+    """Confusion matrix (actual × decision), accuracy, per-class / macro F1 and recall over the labelled cycles, with
+    sklearn.metrics. The actual part is mapped to the decision that would be right (other → reject)."""
+    rows = [(EXPECTED[r["truth"]], r["pred"] if r["status"] in MEASURED else "none") for r in results
+            if r.get("mode") != "dry" and r.get("truth") in EXPECTED
+            and (r["status"] == EMPTY or (r["status"] in MEASURED and r.get("pred") in PRED_COLS))]
+    y_true, y_pred = [a for a, _ in rows], [b for _, b in rows]
+    labels = PRED_COLS[:4]                          # decisions that an actual part can call for
+
+    def per_class(score: Callable) -> Dict[str, Optional[float]]:
+        vals = score(y_true, y_pred, labels=labels, average=None, zero_division=np.nan) if rows else [np.nan] * 4
+        return {c: None if np.isnan(v) else float(v) for c, v in zip(labels, vals)}
+    cm_arr = confusion_matrix(y_true, y_pred, labels=PRED_COLS) if rows else np.zeros((5, 5), dtype=int)
+    cm = {t: {p: int(v) for p, v in zip(PRED_COLS, cm_arr[i])} for i, t in enumerate(TRUTH_ROWS)}
+    f1, recall = per_class(f1_score), per_class(recall_score)
     vals = [v for v in f1.values() if v is not None]
-    recall = {t: (cm[t][EXPECTED[t]] / sum(cm[t].values()) if sum(cm[t].values()) else None) for t in TRUTH_ROWS}
-    return dict(cm=cm, n=n, correct=correct, acc=correct / n if n else None, f1=f1,
-                macro_f1=sum(vals) / len(vals) if vals else None, recall=recall,
+    return dict(cm=cm, n=len(rows), correct=sum(a == b for a, b in rows),
+                acc=float(accuracy_score(y_true, y_pred)) if rows else None, f1=f1,
+                macro_f1=float(np.mean(vals)) if vals else None, recall={t: recall[EXPECTED[t]] for t in TRUTH_ROWS},
                 security=cm["hdd25"]["ssd"] + cm["hdd35"]["ssd"])
 
 
@@ -241,7 +235,7 @@ class DashboardController(Controller):
               + ("before every part" if s.tare_every_part else
                  f"stored (renewed after {s.tare_max_age_min:g} min)" if s.tare_max_age_min > 0 else "stored")
               + f" · bench contact ≤ {s.contact_g:g} g and ≤ {s.contact_pct:g} % of the part, "
-              f"descent {s.descent_speed_mms:g} mm/s ({s.descent_method}), "
+              f"descent {s.descent_speed_mms:g} mm/s (impedance), "
               + ("gripper opened during the test" if s.bench_release else "part held during the test") + ", "
               + ("test until Continue" if s.bench_wait else f"test {s.bench_pause_s:g} s")
               + f" · classifier: trained model ({DRIVE_MODEL_NOTE}), SSD only from {s.ssd_min_conf_pct:g} % "
@@ -597,12 +591,7 @@ def _rgb01(hex_color: str) -> List[float]:
 
 def _align_y(u: np.ndarray) -> np.ndarray:
     """Rotation matrix that maps the y axis (three.js cylinder axis) onto unit vector u."""
-    y = np.array([0.0, 1.0, 0.0])
-    v, c = np.cross(y, u), float(np.dot(y, u))
-    if c < -0.999999:
-        return np.diag([1.0, -1.0, -1.0])
-    vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-    return np.eye(3) + vx + vx @ vx / (1.0 + c)
+    return Rotation.align_vectors([u], [[0.0, 1.0, 0.0]])[0].as_matrix()
 
 
 class Twin:
@@ -673,8 +662,7 @@ class Twin:
     def set_paths(self, waypoints: Dict[str, List[List[float]]], draft_name: str, draft: List[List[float]],
                   show: bool = True) -> None:
         for o in self.path_objs:
-            with contextlib.suppress(Exception):
-                o.delete()
+            o.delete()
         self.path_objs = []
         if not show:
             return
@@ -1083,7 +1071,9 @@ class Page(RobotPanels):
             rects, open_ = [], {}
             for j in range(ny):
                 ya, yb = 10 ** (ly0 + (ly1 - ly0) * j / ny), 10 ** (ly0 + (ly1 - ly0) * (j + 1) / ny)
-                cells = [classify(math.sqrt(ya * yb), x_max * (i + 0.5) / nx, s)[0] for i in range(nx)]
+                m, ws = math.sqrt(ya * yb), x_max * (np.arange(nx) + 0.5) / nx
+                cells = [classify(m, w, s, dict(zip(MODEL.classes_, p)))[0]
+                         for w, p in zip(ws, model_proba(ws, np.full(nx, m)))]
                 row_open, i0 = {}, 0
                 for i in range(1, nx + 1):
                     if i == nx or cells[i] != cells[i0]:
@@ -1174,9 +1164,9 @@ class Page(RobotPanels):
     def _on_key(self, e: Any) -> None:
         if not e.action.keydown or e.action.repeat:
             return
-        if getattr(e.modifiers, "ctrl", False) or getattr(e.modifiers, "meta", False) or getattr(e.modifiers, "alt", False):
+        if e.modifiers.ctrl or e.modifiers.meta or e.modifiers.alt:
             return
-        name = getattr(e.key, "name", str(e.key))
+        name = e.key.name
         if name == "Escape":
             if self._fullscreen:              # Esc leaves the full-screen twin — never taken as STOP
                 return
@@ -1361,7 +1351,7 @@ class Page(RobotPanels):
             return
         q = np.asarray(c.tele["q"], dtype=float)
         for i, (row, mark, val) in enumerate(self.j_rows):
-            lo, hi = float(Q_LOWER[i]), float(Q_UPPER[i])
+            lo, hi = float(JOINT_LIMITS_LOWER[i]), float(JOINT_LIMITS_UPPER[i])
             frac = (float(q[i]) - lo) / (hi - lo)
             edge = min(frac, 1.0 - frac)
             state = "crit" if edge < 0.03 else "warn" if edge < 0.09 else ""
@@ -1461,7 +1451,7 @@ class Page(RobotPanels):
                    else "holding still for the reference force …")
         elif b.get("contact") is not None:
             txt = (f"contact after {b['descent'] * 1000:.1f} mm · rest load {b['rest'] * 1000:.0f} g" if b["contact"]
-                   else f"NO contact within {c.s.max_descent_mm:g} mm (rest {b['rest'] * 1000:.0f} g) — check bench "
+                   else f"NO contact down to the seat (rest {b['rest'] * 1000:.0f} g) — check bench "
                         "height / bench path")
             if b.get("phase") == "resting":
                 txt = "resting · " + txt
